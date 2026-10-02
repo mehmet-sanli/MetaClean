@@ -1,5 +1,11 @@
-"""Her örneği hazırlar (kaydetmeden) ve kapıları/kalan alanları yazdırır."""
+"""Hata ayıklama: verilen dosyaları hazırlar (kaydetmeden), kapıları ve uyarıları yazdırır.
+
+Kullanım: python tests/report_samples.py DOSYA [DOSYA ...] [--full]
+"""
+import os
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from metaclean.core.handlers.base import Options
 from metaclean.core.session import Job

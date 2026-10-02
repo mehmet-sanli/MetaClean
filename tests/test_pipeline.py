@@ -185,6 +185,49 @@ class PipelineTests(unittest.TestCase):
         self.assertFalse(eq.passed)
         self.assertTrue(any("yan veri" in d for d in eq.details), eq.details)
 
+    def test_ultrahdr_gain_map_preserved(self):
+        import subprocess
+
+        from PIL import Image
+        path = self.copy("hdr.jpg")
+        job = Job(path)
+        r = job.prepare()
+        self.assertTrue(r.ok, [(g.name, g.details) for g in r.gates if not g.passed])
+        with open(job.out, "rb") as f:
+            clean = f.read()
+        self.assertIn(b"hdr-gain-map", clean, "Ultra HDR işareti korunmalı")
+        for leaked in (b"Istanbul", b"Ayse Gizli", b"derinlik", b"Canon"):
+            self.assertNotIn(leaked, clean)
+
+        def exif(file, *args):
+            return subprocess.run(["exiftool", "-s3", *args, file], capture_output=True, check=True).stdout
+
+        self.assertEqual(exif(job.out, "-MPF:NumberOfImages").strip(), b"2", "derinlik haritası silinmeli")
+        # Kazanç haritasını ExifTool ile (uygulamadan bağımsız) çıkar, pikselleri karşılaştır
+        import io
+        orig_gain = Image.open(io.BytesIO(exif(path, "-b", "-MPImage2")))
+        clean_gain = Image.open(io.BytesIO(exif(job.out, "-b", "-MPImage2")))
+        self.assertEqual(orig_gain.tobytes(), clean_gain.tobytes())
+        job.discard()
+
+    def test_equivalence_gate_catches_lost_gain_map(self):
+        orig_clean = images.JpegHandler.clean
+
+        def drop_gain_map(self_, ctx):
+            out = orig_clean(self_, ctx)
+            with open(out, "rb") as f:
+                data = f.read()
+            items, _ = images.parse_jpeg(data)
+            with open(out, "wb") as f:
+                f.write(images.build_jpeg([(m, p) for m, p in items if not images._is_mpf(m, p)]))
+            return out
+
+        with mock.patch.object(images.JpegHandler, "clean", drop_gain_map):
+            r = Job(self.copy("hdr.jpg")).prepare()
+        eq = next(g for g in r.gates if g.name == "Eşdeğerlik")
+        self.assertFalse(eq.passed)
+        self.assertTrue(any("kazanç haritası" in d for d in eq.details), eq.details)
+
     def test_cancel(self):
         job = Job(self.copy("video.mp4"))
         job.cancel.set()

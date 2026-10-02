@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QDateTimeEdit, QDialog, 
                                QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QRadioButton,
                                QSpinBox, QTextBrowser, QVBoxLayout)
 
+from .. import __version__
 from ..core import tools
 
 INSTALL_HINTS = {
@@ -19,6 +20,16 @@ INSTALL_HINTS = {
 
 def settings() -> QSettings:
     return QSettings("MetaClean", "MetaClean")
+
+
+def about_html() -> str:
+    from ..applog import log_dir
+    return (f"<h2>MetaClean {__version__}</h2>"
+            "<p>Fotoğraf, ses ve videolardaki gizli bilgileri kaliteyi bozmadan kaldırır.</p>"
+            "<p>İnternete bağlanmaz, veri toplamaz. Kayıt dosyasına dosya adı ya da yolu yazılmaz.</p>"
+            f"<p>Kayıt klasörü: <code>{log_dir()}</code></p>"
+            "<p>İçinde gelen araçlar: ExifTool (Phil Harvey), FFmpeg, Qt (PySide6), Pillow, mutagen, "
+            "pillow-heif. Lisans bildirimleri: <code>THIRD_PARTY_NOTICES.md</code></p>")
 
 
 def apply_tool_overrides() -> None:

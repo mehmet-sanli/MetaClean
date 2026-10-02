@@ -8,9 +8,6 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 
 
-LOG_PATH = os.path.join(os.path.expanduser("~"), "MetaClean.log")
-
-
 def _excepthook(kind, value, tb):
     # Qt yuvalarındaki yakalanmamış hatalar sessizce kaybolmasın
     text = "".join(traceback.format_exception(kind, value, tb))
@@ -30,7 +27,8 @@ def selftest() -> int:
     from .core import tools
     from .core.session import Job
 
-    lines, ok = [], True
+    from . import __version__
+    lines, ok = [f"MetaClean {__version__}, Python {sys.version.split()[0]}, {sys.platform}"], True
     for t in tools.TOOLS:
         path = tools.find_tool(t)
         lines.append(f"{'OK ' if path else 'YOK'} {t}: {tools.tool_version(t) if path else '-'} ({path})")
@@ -62,11 +60,16 @@ def selftest() -> int:
 
 
 def main() -> int:
+    if "--version" in sys.argv:
+        from . import __version__
+        print(f"MetaClean {__version__}")
+        return 0
     if "--selftest" in sys.argv:
         return selftest()
-    logging.basicConfig(filename=LOG_PATH, level=logging.INFO, encoding="utf-8",
-                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    logging.getLogger("metaclean").info("başladı, python %s, cwd %s", sys.version.split()[0], os.getcwd())
+    from . import __version__, applog
+    applog.setup()
+    logging.getLogger("metaclean").info("MetaClean %s başladı, Python %s, %s", __version__,
+                                        sys.version.split()[0], sys.platform)
     sys.excepthook = _excepthook
     app = QApplication(sys.argv)
     app.setApplicationName("MetaClean")
@@ -76,8 +79,8 @@ def main() -> int:
     app.setWindowIcon(QIcon(os.path.join(assets, "logo.svg")))
     if "--gelismis" in sys.argv:
         sys.argv.remove("--gelismis")
-        from .gui.main_window import MainWindow
-        win = MainWindow()
+        from .gui.advanced_window import AdvancedWindow
+        win = AdvancedWindow()
     else:
         from .gui.simple_window import SimpleWindow
         win = SimpleWindow()

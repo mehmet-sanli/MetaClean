@@ -10,7 +10,7 @@ import tempfile
 import threading
 from typing import Callable, List, Optional, Set, Tuple
 
-from . import allowlist, detect, timestamps, tools
+from . import allowlist, detect, fsops, timestamps, tools
 from .handlers.audio import FlacHandler, Mp3Handler
 from .handlers.base import Context, Handler, Options
 from .handlers.images import HeifHandler, JpegHandler, PngHandler, WebpHandler
@@ -64,6 +64,12 @@ def _fsync_dir(path: str) -> None:
         os.fsync(fd)
     finally:
         os.close(fd)
+
+
+def in_managed_library(path: str) -> bool:
+    """Uygulamaların kendi veritabanıyla yönettiği arşivler (dışarıdan değiştirilmemeli)."""
+    parts = os.path.normpath(path).split(os.sep)
+    return any(p.endswith((".photoslibrary", ".aplibrary", ".migratedphotolibrary")) for p in parts)
 
 
 def suggest_copy_name(real: str, fmt: str) -> str:
@@ -179,14 +185,18 @@ class Job:
     def save_replace(self, when: Optional[float] = None) -> List[str]:
         if not self.ready:
             raise RuntimeError("Kaydedilecek doğrulanmış dosya yok.")
+        if in_managed_library(self.real):
+            raise RuntimeError("Bu dosya bir fotoğraf arşivinin (ör. macOS Fotoğraflar) içinde. Arşivin içindeki "
+                               "dosyayı değiştirmek arşivi bozabilir; 'Kopya olarak kaydet'i kullanın.")
         if signature(self.real) != self.orig_sig:
             self.discard()
             raise RuntimeError("Orijinal dosya onay beklenirken değişti; kaydetme iptal edildi.")
-        if os.name == "nt" and not os.access(self.real, os.W_OK):
-            raise RuntimeError("Orijinal salt okunur; Windows salt okunur dosyanın yerine yazmaya izin vermez.")
+        if fsops.is_readonly(self.real):
+            raise RuntimeError("Orijinal dosya salt okunur; üzerine yazılamaz. 'Kopya olarak kaydet'i kullanın.")
         _fsync_file(self.out)
         shutil.copymode(self.real, self.out)  # yalnızca izinler; copy2/copystat eski damgaları taşır
-        os.replace(self.out, self.real)
+        out = self.out
+        fsops.retry_on_lock(lambda: os.replace(out, self.real), "Orijinal dosya")
         _fsync_dir(os.path.dirname(self.real))
         self.out = None
         self.discard()
@@ -201,7 +211,8 @@ class Job:
         dest_dir = os.path.dirname(dest_real)
         if os.stat(dest_dir).st_dev == os.stat(self.workdir).st_dev:
             _fsync_file(self.out)
-            os.replace(self.out, dest_real)
+            out = self.out
+            fsops.retry_on_lock(lambda: os.replace(out, dest_real), "Hedef dosya")
         else:
             shutil.copyfile(self.out, dest_real)
             _fsync_file(dest_real)

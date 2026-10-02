@@ -76,6 +76,16 @@ RULES: Dict[str, Dict[str, Rule]] = {
     "Matroska": {**{k: True for k in _MKV_STRUCT},
                  "AttachedFileMIMEType": lambda v: bool(FONT_MIME.match(v)),
                  "AttachedFileName": lambda v: v.lower().endswith((".ttf", ".otf", ".ttc", ".woff", ".woff2"))},
+    # HDR kazanç haritası (Ultra HDR / ISO 21496-1 / Apple): yalnızca görüntüleme parametreleri
+    "XMP-hdrgm": {"*": True},
+    "XMP-apdi": {"*": True},
+    "XMP-HDRGainMap": {"*": True},
+    "XMP-GContainer": {k: True for k in ("DirectoryItemSemantic", "DirectoryItemMime", "DirectoryItemLength",
+                                         "DirectoryItemPadding")},
+    "MPF0": {k: True for k in ("MPFVersion", "NumberOfImages")},
+    "MPImage": {k: True for k in ("MPImageFlags", "MPImageFormat", "MPImageType", "MPImageLength", "MPImageStart",
+                                  "DependentImage1EntryNumber", "DependentImage2EntryNumber")},
+    "Google": {"GainMapImage": True},
     "Info": {"TimecodeScale": True, "Duration": True, "CRC-32": True,
              "MuxingApp": lambda v: v == "Lavf", "WritingApp": lambda v: v == "Lavf"},
 }
@@ -84,6 +94,8 @@ RULES: Dict[str, Dict[str, Rule]] = {
 def _norm_group(group: str) -> str:
     if re.fullmatch(r"Track\d+", group):
         return "Track"
+    if re.fullmatch(r"MPImage\d+", group):
+        return "MPImage"
     return group
 
 
@@ -105,6 +117,8 @@ def is_allowed(group: str, name: str, value: object) -> bool:
         return True
     if g in ("Matroska", "Track") and name.startswith("Matroska_0x"):
         return True
+    if g == "MPImage" and re.fullmatch(r"MPImage\d+", name):
+        return True  # MPF'nin işaret ettiği görüntünün kendisi; içeriğini yapısal denetim doğrular
     rule = rules.get(name, rules.get("*", False))
     return rule(v) if callable(rule) else bool(rule)
 

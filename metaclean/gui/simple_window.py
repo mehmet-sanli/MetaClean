@@ -388,7 +388,7 @@ class DropArea(QFrame):
 class SimpleWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MetaClean – Paylaşmadan önce temizle")
+        self.setWindowTitle("MetaClean")
         self.resize(760, 720)
         self.setMinimumSize(560, 520)
         self.setAcceptDrops(True)
@@ -516,6 +516,8 @@ class SimpleWindow(QMainWindow):
         m.addAction("Ayarlar…", lambda: dialogs.SettingsDialog(self).exec())
         m.addAction("Araçlar…", lambda: dialogs.InfoDialog("Araçlar", dialogs.tools_html(), self).exec())
         m.addAction("Nasıl çalışır?", lambda: dialogs.InfoDialog("Nasıl çalışır", dialogs.LIMITS_HTML, self).exec())
+        m.addSeparator()
+        m.addAction("MetaClean hakkında", lambda: dialogs.InfoDialog("Hakkında", dialogs.about_html(), self).exec())
         return m
 
     def _check_tools(self) -> None:
@@ -636,9 +638,9 @@ class SimpleWindow(QMainWindow):
         self._update_header()
 
     def open_advanced(self) -> None:
-        from .main_window import MainWindow
+        from .advanced_window import AdvancedWindow
         if self.advanced is None:
-            self.advanced = MainWindow()
+            self.advanced = AdvancedWindow()
         self.advanced.show()
         self.advanced.raise_()
 

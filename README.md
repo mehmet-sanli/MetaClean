@@ -1,5 +1,7 @@
 # MetaClean
 
+Sürümü öğrenmek için: `python -m metaclean --version` ya da uygulamada **Diğer → MetaClean hakkında**.
+
 Görsel, ses ve video dosyalarından meta veriyi **yeniden kodlamadan** silen, sonucu kanıtlamadan
 kaydetmeyen, Qt6 (PySide6) arayüzlü bir masaüstü uygulaması. macOS ve Linux'ta çalışır. Windows sürümü ayrı bir projede (MetaClean-Windows) geliştiriliyor.
 
@@ -22,10 +24,10 @@ Paketler imzasız olduğu için ilk açılışta uyarı çıkabilir:
 ### Kaynak koddan
 | Sistem | Komut |
 |---|---|
-| macOS | `./install_mac.sh` (gerekirse önce `brew install exiftool ffmpeg`) |
+| macOS | `./install_mac.sh` (gerekirse önce `brew install exiftool ffmpeg`). Uygulamalar'a **MetaClean (kaynak)** adıyla kurulur |
 | Linux | `./install_linux.sh` (apt, dnf ya da pacman ile eksikleri kurar) |
 
-Hepsi masaüstüne logolu bir MetaClean kısayolu koyar. Kurulumu sınamak için:
+Kurulumu sınamak için:
 ```
 python -m metaclean --selftest
 ```
@@ -68,7 +70,7 @@ dist/MetaClean/MetaClean --selftest      # macOS: dist/MetaClean.app/Contents/Ma
 Her paket kendi işletim sisteminde derlenmelidir; bunu GitHub Actions üç makinede yapar.
 Simgeler `metaclean/gui/assets/logo.svg`'den `python packaging/make_icons.py` ile üretilir.
 
-**Lisanslar:** ExifTool Perl lisansı (Artistic/GPL) ile dağıtılır. Linux paketindeki
+**Lisanslar:** Ayrıntılar `THIRD_PARTY_NOTICES.md` dosyasında. ExifTool Perl lisansı (Artistic/GPL) ile dağıtılır. Linux paketindeki
 FFmpeg LGPL derlemesidir; macOS paketindeki statik derleme GPL'dir. Paketleri dağıtırken bu lisansların
 koşullarına (kaynak koda erişim bildirimi) uyun.
 
@@ -82,8 +84,15 @@ metaclean/
   core/allowlist.py     ExifTool taramasının izin listesi (kapalı varsayılan)
   core/session.py       temp -> 3 kapı -> onay -> atomik kaydetme
   core/timestamps.py    setattrlist (macOS), os.utime
-  gui/                  Qt6 arayüzü (simple_window: basit mod, main_window: gelişmiş mod)
+  core/fsops.py         kilitli dosyada yeniden deneme, salt okunur denetimi
+  applog.py             kayıt: dosya adı ve yolu yazmaz
+  gui/                  Qt6 arayüzü (simple_window: ana ekran, advanced_window: gelişmiş mod)
 packaging/              PyInstaller tarifi, araç indirici, simge üretici, Linux .desktop
 .github/workflows/      macOS / Linux için otomatik test ve paketleme
 install_*.sh/.bat       Kaynak koddan kurulum betikleri
 ```
+
+## Gizlilik ve kayıt dosyası
+MetaClean internete bağlanmaz ve veri toplamaz. Hata ayıklama kaydına dosya adı ya da yolu yazılmaz;
+yollar `<dosya>.jpg` biçimine indirilir. Kayıt yeri: macOS `~/Library/Logs/MetaClean/`,
+Linux `~/.local/state/metaclean/`. Dosya 512 KB'ı aşınca eskisi silinir.

@@ -15,6 +15,16 @@ from PIL.PngImagePlugin import PngInfo
 FF = ["ffmpeg", "-y", "-hide_banner", "-v", "error"]
 
 
+def write(path: str, data) -> None:
+    """Dosyayı kapatarak yazar; metin her sistemde UTF-8 (Windows varsayılanı cp1252 Türkçeyi bozar)."""
+    if isinstance(data, str):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(data)
+    else:
+        with open(path, "wb") as f:
+            f.write(data)
+
+
 def sh(*args):
     subprocess.run(args, check=True)
 
@@ -41,6 +51,50 @@ def gradient(w=320, h=200, mode="RGB"):
     return im.convert(mode)
 
 
+def make_ultrahdr(path: str) -> None:
+    """Ultra HDR yapısında JPEG: ana görüntü (GPS'li) + kazanç haritası (kendi EXIF'i ve yazar adıyla)
+    + derinlik haritası. MPF, uygulamanınkinden bağımsız olarak little-endian elle yazılır."""
+    import struct
+    gain = io.BytesIO()
+    gain_xmp = (b'<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+                b'<rdf:Description rdf:about="" xmlns:hdrgm="http://ns.adobe.com/hdr-gain-map/1.0/" '
+                b'xmlns:dc="http://purl.org/dc/elements/1.1/" hdrgm:Version="1.0" hdrgm:GainMapMax="2.3" '
+                b'hdrgm:HDRCapacityMax="2.3" hdrgm:Gamma="1"><dc:creator><rdf:Seq><rdf:li>Ayse Gizli</rdf:li>'
+                b'</rdf:Seq></dc:creator></rdf:Description></rdf:RDF></x:xmpmeta>')
+    gradient(80, 50, "L").save(gain, "JPEG", quality=85, xmp=gain_xmp, exif=exif_bytes(1))
+    gain = gain.getvalue()
+    depth = io.BytesIO()
+    gradient(40, 25, "L").save(depth, "JPEG", comment=b"derinlik")
+    depth = depth.getvalue()
+    primary_xmp = (b'<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+                   b'<rdf:Description rdf:about="" xmlns:hdrgm="http://ns.adobe.com/hdr-gain-map/1.0/" '
+                   b'xmlns:Container="http://ns.google.com/photos/1.0/container/" '
+                   b'xmlns:Item="http://ns.google.com/photos/1.0/container/item/" '
+                   b'xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/" hdrgm:Version="1.0" photoshop:City="Istanbul">'
+                   b'<Container:Directory><rdf:Seq><rdf:li rdf:parseType="Resource"><Container:Item Item:Semantic="Primary" '
+                   b'Item:Mime="image/jpeg"/></rdf:li><rdf:li rdf:parseType="Resource"><Container:Item Item:Semantic="GainMap" '
+                   b'Item:Mime="image/jpeg" Item:Length="' + str(len(gain)).encode() + b'"/></rdf:li></rdf:Seq>'
+                   b'</Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>')
+    prim = io.BytesIO()
+    gradient(320, 200).save(prim, "JPEG", quality=90, exif=exif_bytes(6), xmp=primary_xmp)
+    prim = prim.getvalue()
+
+    def mpf(entries):  # little-endian; ofsetler TIFF başlığına göre
+        ifd = struct.pack("<H", 3) + struct.pack("<HHI4s", 0xB000, 7, 4, b"0100") + \
+            struct.pack("<HHII", 0xB001, 4, 1, len(entries)) + struct.pack("<HHII", 0xB002, 7, 16 * len(entries), 50) + \
+            struct.pack("<I", 0)
+        tiff = b"II*\x00" + struct.pack("<I", 8) + ifd + b"".join(struct.pack("<IIIHH", a, sz, o, 0, 0) for a, sz, o in entries)
+        payload = b"MPF\x00" + tiff
+        return b"\xff\xe2" + struct.pack(">H", len(payload) + 2) + payload
+
+    seg_len = len(mpf([(0, 0, 0)] * 3))
+    total = len(prim) + seg_len
+    tiff_abs = 2 + 4 + 4  # SOI'den hemen sonra: FF E2 + uzunluk + "MPF\0"
+    entries = [(0x20030000, total, 0), (0, len(gain), total - tiff_abs), (0x00020000, len(depth), total + len(gain) - tiff_abs)]
+    with open(path, "wb") as f:
+        f.write(prim[:2] + mpf(entries) + prim[2:] + gain + depth)
+
+
 def main(d: str):
     os.makedirs(d, exist_ok=True)
     srgb = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
@@ -50,7 +104,7 @@ def main(d: str):
     gradient().save(p("foto.jpg"), quality=90, exif=exif_bytes(6), icc_profile=srgb, comment=b"gizli yorum")
     thumb = io.BytesIO()
     gradient(80, 50).save(thumb, "JPEG")
-    open(p("thumb.jpg"), "wb").write(thumb.getvalue())
+    write(p("thumb.jpg"), thumb.getvalue())
     sh("exiftool", "-q", "-overwrite_original", "-XMP-dc:Creator=Ayşe", "-XMP-photoshop:City=İstanbul",
        "-IPTC:Keywords=gizli", "-IPTC:By-line=Ayşe", f"-ThumbnailImage<={p('thumb.jpg')}", p("foto.jpg"))
     os.remove(p("thumb.jpg"))
@@ -65,6 +119,9 @@ def main(d: str):
     sh("exiftool", "-q", "-overwrite_original", "-PNG:CreationTime=2026:08:15 14:22:33", "-XMP-dc:Rights=gizli", p("ekran.png"))
     with open(p("ekran.png"), "ab") as f:
         f.write(b"TRAILER")
+
+    # Ultra HDR: kazanç haritası korunmalı, derinlik haritası ve kişisel alanlar silinmeli
+    make_ultrahdr(p("hdr.jpg"))
 
     # WebP: EXIF, XMP, ICC
     gradient().save(p("resim.webp"), quality=80, exif=exif_bytes(3), icc_profile=srgb,
@@ -81,7 +138,7 @@ def main(d: str):
     sine = ["-f", "lavfi", "-i", "sine=frequency=440:duration=3"]
     # MP3: ID3v2 (+kapak), ID3v1, APE
     cover = p("kapak.jpg")
-    open(cover, "wb").write(thumb.getvalue())
+    write(cover, thumb.getvalue())
     sh(*FF, *sine, "-i", cover, "-map", "0", "-map", "1:v",
        "-c:a", "libmp3lame", "-b:a", "128k", "-c:v", "copy", "-disposition:v", "attached_pic",
        "-id3v2_version", "3", "-write_id3v1", "1", "-metadata", "title=Gizli Kayıt", "-metadata", "artist=Ayşe",
@@ -110,10 +167,10 @@ def main(d: str):
             "-metadata", "creation_time=2026-08-15T14:22:33Z", "-metadata", "artist=Ayşe",
             "-metadata", "com.apple.quicktime.make=Apple", "-metadata", "com.apple.quicktime.model=iPhone 17"]
     chapters = p("bolumler.txt")
-    open(chapters, "w").write(";FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=1500\ntitle=Evde\n"
+    write(chapters, ";FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=1500\ntitle=Evde\n"
                               "[CHAPTER]\nTIMEBASE=1/1000\nSTART=1500\nEND=3000\ntitle=Sokakta\n")
     srt = p("altyazi.srt")
-    open(srt, "w").write("1\n00:00:00,500 --> 00:00:02,000\nMerhaba\n")
+    write(srt, "1\n00:00:00,500 --> 00:00:02,000\nMerhaba\n")
     vid = ["-f", "lavfi", "-i", "testsrc2=s=320x240:r=30:d=3"]
     a2 = ["-f", "lavfi", "-i", "sine=frequency=880:duration=3"]
 
@@ -143,11 +200,11 @@ def main(d: str):
 
     # MKV: 2 ses, ASS altyazı + yazı tipi eki + jpeg eki, bölümler, etiketler
     ass = p("altyazi.ass")
-    open(ass, "w").write("[Script Info]\nScriptType: v4.00+\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize\n"
+    write(ass, "[Script Info]\nScriptType: v4.00+\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize\n"
                          "Style: Default,Arial,20\n\n[Events]\nFormat: Layer, Start, End, Style, Text\n"
                          "Dialogue: 0,0:00:00.50,0:00:02.00,Default,Merhaba\n")
-    open(p("font.ttf"), "wb").write(b"\x00\x01\x00\x00" + b"\x00" * 60)
-    open(p("ek.jpg"), "wb").write(thumb.getvalue())
+    write(p("font.ttf"), b"\x00\x01\x00\x00" + b"\x00" * 60)
+    write(p("ek.jpg"), thumb.getvalue())
     sh(*FF, *vid, *sine, *a2, "-i", ass, "-i", chapters,
        "-attach", p("font.ttf"), "-metadata:s:t:0", "mimetype=font/ttf",
        "-attach", p("ek.jpg"), "-metadata:s:t:1", "mimetype=image/jpeg",

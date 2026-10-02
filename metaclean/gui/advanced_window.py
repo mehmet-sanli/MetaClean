@@ -1,4 +1,4 @@
-"""Ana pencere: dosya listesi, ayrıntı paneli ve onay akışı."""
+"""Gelişmiş mod: dosya listesi, ayrıntı paneli, orijinalin üzerine yazma ve toplu işlem."""
 from __future__ import annotations
 
 import html
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QHBoxLayout, QHea
                                QTableWidget, QTableWidgetItem, QTabWidget, QTextBrowser, QToolBar, QTreeWidget,
                                QTreeWidgetItem, QVBoxLayout, QWidget)
 
+from .. import __version__
 from ..core import detect, tools
 from ..core.handlers.base import Options
 from ..core.session import Job, suggest_copy_name
@@ -79,10 +80,10 @@ class Task(QRunnable):
             self.signals.done.emit(self.eid, self.kind, None, e)
 
 
-class MainWindow(QMainWindow):
+class AdvancedWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MetaClean – Kayıpsız meta veri temizleyici")
+        self.setWindowTitle(f"MetaClean {__version__} – Gelişmiş mod")
         self.resize(1180, 720)
         self.setAcceptDrops(True)
         dialogs.apply_tool_overrides()
@@ -216,7 +217,7 @@ class MainWindow(QMainWindow):
             self.banner.hide()
 
     # ------------------------------------------------------------ dosya ekleme
-    # macOS, dragMove kabul edilmezse bırakmaya izin vermez; üç olay da kabul edilmeli
+    # Bazı sistemler (ör. macOS) dragMove kabul edilmezse bırakmaya izin vermez
     def _has_files(self, e) -> bool:
         return e.mimeData().hasUrls() and any(u.isLocalFile() for u in e.mimeData().urls())
 
@@ -271,17 +272,6 @@ class MainWindow(QMainWindow):
         log.info("add_paths: %s", paths)
         files, skipped = [], 0
         problems: List[str] = []
-        library = [p for p in paths if ".photoslibrary" in p]
-        if library:
-            QMessageBox.information(
-                self, "Fotoğraflar arşivi",
-                "Bu dosya Fotoğraflar uygulamasının arşivinin içinden geliyor ve çoğu zaman orijinal değil, "
-                "küçültülmüş bir önizleme. Arşivin içindeki dosyayı değiştirmek arşivi bozabilir, bu yüzden "
-                "eklenmedi.\n\nFotoğraflar'da Dosya > Dışa Aktar > Değiştirilmemiş Orijinali Dışa Aktar ile "
-                "bir klasöre çıkarın, sonra o dosyayı buraya sürükleyin.")
-            paths = [p for p in paths if ".photoslibrary" not in p]
-            if not paths:
-                return
         for p in paths:
             if os.path.isdir(p):
                 for root, dirs, names in os.walk(p):

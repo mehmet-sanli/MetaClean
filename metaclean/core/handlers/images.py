@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import struct
 import zlib
 from typing import Dict, List, Optional, Tuple
 
 from .. import tiffmin, tools
+from . import gainmap
 from ..report import Gate
 from .base import Context, Handler
 
@@ -30,7 +32,7 @@ def _pil():
     return Image
 
 
-def decode_digest(path: str) -> Tuple[str, Dict[str, object]]:
+def decode_digest(path) -> Tuple[str, Dict[str, object]]:
     """Tüm kareleri tam çözer (load), ham piksellerin SHA-256'sını ve teknik parametreleri döndürür."""
     Image = _pil()
     h = hashlib.sha256()
@@ -156,14 +158,75 @@ def _app_name(m: int, p: bytes) -> str:
     return f"APP{m - 0xE0} segmenti ({tag or 'adsız'})"
 
 
-class JpegHandler(PillowVerifyMixin, Handler):
+ICC_SIG = b"ICC_PROFILE\x00"
+
+
+def _is_mpf(m: int, p: Optional[bytes]) -> bool:
+    return m == 0xE2 and p is not None and p.startswith(gainmap.MPF_SIG)
+
+
+def _secondaries(data: bytes, items, trailer: bytes) -> List[Tuple[int, bytes]]:
+    """EOI sonrasındaki ikincil JPEG'ler: [(MPF özniteliği, bayt)]. Önce MPF dizinine, yoksa
+    art arda gelen JPEG'lere bakılır."""
+    out: List[Tuple[int, bytes]] = []
+    mpf = next((p for m, p in items if _is_mpf(m, p)), None)
+    base = gainmap.mpf_tiff_offset(data) if mpf else None
+    if mpf and base:
+        try:
+            entries = gainmap.parse_mpf(mpf)
+        except (struct.error, IndexError):
+            entries = []
+        for attr, size, offset in entries[1:]:
+            chunk = data[base + offset:base + offset + size]
+            if len(chunk) == size and chunk[:2] == b"\xff\xd8":
+                out.append((attr, chunk))
+    if not out:
+        rest = trailer
+        while rest[:2] == b"\xff\xd8":
+            try:
+                _, tail = parse_jpeg(rest)
+            except ValueError:
+                break
+            out.append((0, rest[:len(rest) - len(tail)]))
+            rest = tail
+    return out
+
+
+def _clean_gain_map(jpeg: bytes) -> bytes:
+    """Kazanç haritasının kendi meta verisini temizler; yalnızca HDR parametreleri kalır."""
+    items, _ = parse_jpeg(jpeg)
+    keep = []
+    for m, p in items:
+        if m == ENTROPY or p is None or not (0xE0 <= m <= 0xEF or m == 0xFE):
+            keep.append((m, p))
+        elif m == 0xE0 and p.startswith(b"JFIF\x00") and len(p) >= 12:
+            keep.append((m, p[:12] + b"\x00\x00"))
+        elif (m == 0xE2 and (p.startswith(ICC_SIG) or p.startswith(gainmap.ISO_SIG))) or \
+                (m == 0xEE and p.startswith(b"Adobe")):
+            keep.append((m, p))
+        elif m == 0xE1 and p.startswith(gainmap.XMP_SIG):
+            x = gainmap.sanitize_xmp(p, gainmap.GAIN_MAP_NAMESPACES)
+            if x:
+                keep.append((0xE1, x))
+    return build_jpeg(keep)
+
+
+def canonical_parts(data: bytes) -> Tuple[bytes, List[bytes]]:
+    """Karşılaştırma için: MPF'siz ana görüntü ve kazanç haritaları. Pikseller bunlardan çözülür;
+    böylece silinen derinlik haritası gibi ikincil görüntüler eşdeğerliği bozmaz."""
+    items, trailer = parse_jpeg(data)
+    gains = [j for _, j in _secondaries(data, items, trailer) if gainmap.is_gain_map(parse_jpeg(j)[0])]
+    return build_jpeg([(m, p) for m, p in items if not _is_mpf(m, p)]), gains
+
+
+class JpegHandler(Handler):
     def clean(self, ctx: Context) -> str:
         with open(ctx.src, "rb") as f:
             data = f.read()
         items, trailer = parse_jpeg(data)
         out_items = []
         info = {"orientation": None, "color_space": None}
-        exif_seen = has_icc = has_adobe = jfif_kept = False
+        exif_seen = has_icc = has_adobe = jfif_kept = ultra_hdr = has_iso = False
         for m, p in items:
             if m == ENTROPY or p is None or not (0xE0 <= m <= 0xEF or m == 0xFE):
                 out_items.append((m, p))
@@ -173,25 +236,46 @@ class JpegHandler(PillowVerifyMixin, Handler):
                 jfif_kept = True
                 if len(p) > 14:
                     ctx.removed(f"JFIF küçük resmi ({len(p) - 14} bayt)")
-            elif m == 0xE2 and p.startswith(b"ICC_PROFILE\x00"):
+            elif m == 0xE2 and p.startswith(ICC_SIG):
                 out_items.append((m, p))
                 has_icc = True
+            elif m == 0xE2 and p.startswith(gainmap.ISO_SIG):
+                out_items.append((m, p))  # ISO 21496-1 kazanç haritası sürüm bilgisi; kişisel veri yok
+                has_iso = True
             elif m == 0xEE and p.startswith(b"Adobe"):
                 out_items.append((m, p))
                 has_adobe = True
+            elif _is_mpf(m, p):
+                pass  # dizin, korunan görüntülere göre aşağıda yeniden kurulur
             else:
                 if m == 0xE1 and p.startswith(b"Exif\x00") and not exif_seen:
                     info = tiffmin.read_info(p)
                     exif_seen = True
+                ultra_hdr |= gainmap.has_hdrgm(p) if m == 0xE1 else False
                 ctx.removed(("Yorum (COM)" if m == 0xFE else _app_name(m, p)) + f", {len(p)} bayt")
-        if trailer:
-            ctx.removed(f"EOI sonrası ek veri, {len(trailer)} bayt – hareketli fotoğraf videosu, "
-                        "ikincil görüntü ya da üretici verisi olabilir")
+
+        secondaries = _secondaries(data, items, trailer)
+        gains: List[Tuple[int, bytes]] = []
+        apple_gain = False
+        for attr, jpeg in secondaries:
+            seg = parse_jpeg(jpeg)[0]
+            if gainmap.is_gain_map(seg):
+                gains.append((attr, _clean_gain_map(jpeg)))
+                apple_gain |= any(p is not None and gainmap.APPLE_GAIN_TYPE.encode() in p for _, p in seg)
+            else:
+                ctx.removed(f"İkincil görüntü (derinlik haritası, önizleme vb.), {len(jpeg)} bayt")
+        leftover = len(trailer) - sum(len(j) for _, j in secondaries)
+        if leftover > 0:
+            ctx.removed(f"EOI sonrası ek veri, {leftover} bayt – hareketli fotoğraf videosu ya da üretici verisi olabilir")
+
         o = info["orientation"]
+        head = 1 if out_items and out_items[0][0] == 0xE0 else 0
         if o and o != 1:
-            at = 1 if out_items and out_items[0][0] == 0xE0 else 0
-            out_items.insert(at, (0xE1, b"Exif\x00\x00" + tiffmin.build_orientation_tiff(o)))
+            out_items.insert(head, (0xE1, b"Exif\x00\x00" + tiffmin.build_orientation_tiff(o)))
+            head += 1
             ctx.kept(f"EXIF Orientation = {o}", "Fotoğrafın doğru yönde görünmesi için (yeni, tek alanlı EXIF)")
+        if gains and ultra_hdr:
+            out_items.insert(head, (0xE1, gainmap.primary_xmp([len(j) for _, j in gains])))
         if has_icc:
             ctx.kept("ICC renk profili (APP2)", "Renklerin doğru görünmesi için (ör. Display P3)")
         if has_adobe:
@@ -201,14 +285,81 @@ class JpegHandler(PillowVerifyMixin, Handler):
         if info["color_space"] == 0xFFFF and not has_icc:
             ctx.warn("EXIF ColorSpace 'Uncalibrated' ve ICC profili yok: fotoğraf Adobe RGB olabilir. "
                      "EXIF silinince bazı görüntüleyiciler renkleri sRGB varsayıp soluk gösterebilir.")
-        out = ctx.out_path(".jpg")
-        with open(out, "wb") as f:
-            f.write(build_jpeg(out_items))
-        return out
+
+        if gains:
+            ctx.kept("HDR kazanç haritası (ikincil görüntü)",
+                     "HDR ekranlarda parlaklığı geri kurar; kendi EXIF/XMP'si temizlendi, yalnızca HDR parametreleri kaldı")
+            ctx.kept("MPF görüntü dizini", "Kazanç haritasının dosyadaki yerini gösterir (yeniden hesaplandı)")
+            if ultra_hdr:
+                ctx.kept("Ultra HDR XMP (hdrgm sürümü, GContainer dizini)", "Android ve tarayıcılar kazanç haritasını bununla bulur")
+            if has_iso:
+                ctx.kept("ISO 21496-1 kazanç haritası bilgisi (APP2)", "Standart HDR görüntüleme parametreleri")
+            if apple_gain:
+                ctx.warn("Apple HDR fotoğrafı: parlaklık payı (headroom) üretici notlarında saklanıyor ve kişisel "
+                         "verilerle birlikte silindi. HDR ekranda parlaklık varsayılan değerle gösterilebilir.")
+            out = self._with_gain_maps(out_items, gains)
+        else:
+            out = build_jpeg(out_items)
+        path = ctx.out_path(".jpg")
+        with open(path, "wb") as f:
+            f.write(out)
+        return path
+
+    @staticmethod
+    def _with_gain_maps(items, gains: List[Tuple[int, bytes]]) -> bytes:
+        # MPF'yi ilk APP olmayan segmentten (DQT/SOF) hemen önceye koy; boyutu değerlerden bağımsız
+        at = next(i for i, (m, _) in enumerate(items) if not (0xE0 <= m <= 0xEF))
+        placeholder = gainmap.build_mpf([(0, 0, 0)] * (1 + len(gains)))
+        draft = build_jpeg(items[:at] + [(0xE2, placeholder)] + items[at:])
+        base = gainmap.mpf_tiff_offset(draft)
+        entries = [(gainmap.PRIMARY_ATTR, len(draft), 0)]
+        pos = len(draft)
+        for attr, jpeg in gains:
+            entries.append((attr, len(jpeg), pos - base))
+            pos += len(jpeg)
+        primary = build_jpeg(items[:at] + [(0xE2, gainmap.build_mpf(entries))] + items[at:])
+        return primary + b"".join(j for _, j in gains)
+
+    def verify(self, ctx: Context, out: str) -> Tuple[Gate, Gate]:
+        ctx.progress("Bütünlük: temiz dosya tam çözülüyor")
+        try:
+            decode_digest(out)  # MPF varsa Pillow tüm görüntüleri (MPO kareleri) çözer
+            with open(out, "rb") as f:
+                clean_primary, clean_gains = canonical_parts(f.read())
+            clean_hash, clean_params = decode_digest(io.BytesIO(clean_primary))
+            clean_gain_hashes = [decode_digest(io.BytesIO(g))[0] for g in clean_gains]
+        except Exception as e:  # noqa: BLE001 - çözücünün her hatası kapıyı kapatır
+            return (Gate("Bütünlük", False, [f"Temiz dosya çözülemedi: {e}"]),
+                    Gate("Eşdeğerlik", False, ["Bütünlük geçilmediği için denenmedi."]))
+        integrity = Gate("Bütünlük", True, ["Temiz dosyanın tüm görüntüleri hatasız çözüldü (Pillow load)."])
+        ctx.progress("Eşdeğerlik: orijinal çözülüp karşılaştırılıyor")
+        try:
+            with open(ctx.src, "rb") as f:
+                orig_primary, orig_gains = canonical_parts(f.read())
+            orig_hash, orig_params = decode_digest(io.BytesIO(orig_primary))
+            orig_gain_hashes = [decode_digest(io.BytesIO(g))[0] for g in orig_gains]
+        except Exception as e:  # noqa: BLE001
+            return integrity, Gate("Eşdeğerlik", False, [f"Orijinal çözülemedi, eşitlik kanıtlanamaz: {e}"])
+        details = [f"Ana görüntü piksel SHA-256  orijinal: {orig_hash[:24]}…",
+                   f"Ana görüntü piksel SHA-256  temiz:    {clean_hash[:24]}…"]
+        ok = orig_hash == clean_hash
+        for k in orig_params.keys() | clean_params.keys():
+            if orig_params.get(k) != clean_params.get(k):
+                ok = False
+                details.append(f"Parametre farklı – {k}: {orig_params.get(k)!r} ≠ {clean_params.get(k)!r}")
+        if orig_gain_hashes or clean_gain_hashes:
+            same = orig_gain_hashes == clean_gain_hashes
+            ok &= same
+            details.append(f"HDR kazanç haritası: {len(orig_gain_hashes)} → {len(clean_gain_hashes)}, "
+                           + ("pikseller bit düzeyinde aynı." if same else "FARKLI ya da eksik."))
+        if ok:
+            details.append("Pikseller bit düzeyinde aynı; boyut, renk modu, ICC, yön bilgileri eşleşiyor.")
+        return integrity, Gate("Eşdeğerlik", ok, details)
 
     def structural(self, ctx: Context, out: str) -> List[str]:
         with open(out, "rb") as f:
-            items, trailer = parse_jpeg(f.read())
+            data = f.read()
+        items, trailer = parse_jpeg(data)
         bad = []
         for m, p in items:
             if m == ENTROPY or p is None:
@@ -217,12 +368,31 @@ class JpegHandler(PillowVerifyMixin, Handler):
                 continue
             if m == 0xE1 and p.startswith(b"Exif\x00\x00") and tiffmin.only_orientation(p):
                 continue
-            if (m == 0xE2 and p.startswith(b"ICC_PROFILE\x00")) or (m == 0xEE and p.startswith(b"Adobe")):
+            if m == 0xE1 and p.startswith(gainmap.XMP_SIG) and gainmap.xmp_namespaces(p) <= gainmap.PRIMARY_NAMESPACES:
+                continue
+            if m == 0xE2 and (p.startswith(ICC_SIG) or p.startswith(gainmap.ISO_SIG) or p.startswith(gainmap.MPF_SIG)):
+                continue
+            if m == 0xEE and p.startswith(b"Adobe"):
                 continue
             if 0xE0 <= m <= 0xEF or m == 0xFE:
                 bad.append(f"İzin listesi dışı segment: {_app_name(m, p)}")
-        if trailer:
-            bad.append(f"EOI sonrası {len(trailer)} bayt veri kaldı")
+        secondaries = _secondaries(data, items, trailer)
+        for _, jpeg in secondaries:
+            seg = parse_jpeg(jpeg)[0]
+            if not gainmap.is_gain_map(seg):
+                bad.append(f"Kazanç haritası olmayan ikincil görüntü kaldı ({len(jpeg)} bayt)")
+            for m, p in seg:
+                if p is None or m == ENTROPY or not (0xE0 <= m <= 0xEF or m == 0xFE):
+                    continue
+                if m == 0xE1 and p.startswith(gainmap.XMP_SIG) and gainmap.xmp_namespaces(p) <= gainmap.GAIN_MAP_NAMESPACES:
+                    continue
+                if (m == 0xE0 and len(p) == 14) or (m == 0xE2 and (p.startswith(ICC_SIG) or p.startswith(gainmap.ISO_SIG))) \
+                        or (m == 0xEE and p.startswith(b"Adobe")):
+                    continue
+                bad.append(f"Kazanç haritasında izin listesi dışı segment: {_app_name(m, p)}")
+        leftover = len(trailer) - sum(len(j) for _, j in secondaries)
+        if leftover:
+            bad.append(f"EOI sonrası {leftover} bayt tanımsız veri kaldı")
         return bad
 
 
