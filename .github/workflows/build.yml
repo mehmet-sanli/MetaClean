@@ -1,4 +1,4 @@
-# Her push'ta MetaClean'i Windows, macOS (Apple Silicon + Intel) ve Linux'ta test eder ve paketler.
+# Her push'ta MetaClean'i macOS (Apple Silicon + Intel) ve Linux'ta test eder ve paketler.
 # Paketler Actions sayfasındaki "Artifacts" bölümünden indirilir; v* etiketi atılırsa sürüm (Release) açılır.
 name: Derle ve paketle
 
@@ -15,8 +15,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            name: MetaClean-Windows-x64
           - os: macos-14
             name: MetaClean-macOS-AppleSilicon
           - os: macos-13
@@ -41,10 +39,6 @@ jobs:
       - name: Test araçları (macOS)
         if: runner.os == 'macOS'
         run: brew install ffmpeg exiftool
-      - name: Test araçları (Windows)
-        if: runner.os == 'Windows'
-        run: choco install -y ffmpeg-full exiftool
-
       - name: Python kütüphaneleri
         run: python -m pip install -r requirements.txt pyinstaller
 
@@ -61,9 +55,7 @@ jobs:
       - name: Paket sınaması
         run: |
           set +e
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            ./dist/MetaClean/MetaClean.exe --selftest
-          elif [ "$RUNNER_OS" = "macOS" ]; then
+          if [ "$RUNNER_OS" = "macOS" ]; then
             ./dist/MetaClean.app/Contents/MacOS/MetaClean --selftest
           else
             QT_QPA_PLATFORM=offscreen ./dist/MetaClean/MetaClean --selftest
@@ -75,9 +67,7 @@ jobs:
       - name: Arşivle
         run: |
           mkdir -p out
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            7z a "out/${{ matrix.name }}.zip" ./dist/MetaClean
-          elif [ "$RUNNER_OS" = "macOS" ]; then
+          if [ "$RUNNER_OS" = "macOS" ]; then
             ditto -c -k --keepParent dist/MetaClean.app "out/${{ matrix.name }}.zip"
           else
             cp packaging/linux/metaclean.desktop packaging/linux/install_bundle.sh dist/MetaClean/

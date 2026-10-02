@@ -1,4 +1,4 @@
-"""logo.svg'den platform simgelerini üretir: .ico (Windows), .png (Linux), .icns (macOS).
+"""logo.svg'den platform simgelerini üretir: .png (Linux), .icns (macOS).
 
 Kullanım: python packaging/make_icons.py
 """
@@ -33,11 +33,6 @@ def main() -> None:
     r = QSvgRenderer(os.path.join(ASSETS, "logo.svg"))
     render(r, 512, os.path.join(ASSETS, "logo-512.png"))
     render(r, 256, os.path.join(ASSETS, "logo-256.png"))
-
-    from PIL import Image
-    big = Image.open(os.path.join(ASSETS, "logo-512.png"))
-    big.save(os.path.join(ASSETS, "MetaClean.ico"), sizes=[(16, 16), (24, 24), (32, 32), (48, 48),
-                                                           (64, 64), (128, 128), (256, 256)])
 
     if sys.platform == "darwin" and shutil.which("iconutil"):
         with tempfile.TemporaryDirectory() as tmp:

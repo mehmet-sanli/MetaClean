@@ -1,7 +1,6 @@
 """Paketin içine konacak ExifTool ve FFmpeg'i indirir: packaging/bin/
 
 Derleme makinesinde (GitHub Actions) çalışır; kullanıcı makinesinde gerekmez.
-  Windows : exiftool.org Windows paketi + BtbN FFmpeg (LGPL) derlemesi
   Linux   : exiftool.org Perl dağıtımı + BtbN FFmpeg (LGPL) derlemesi
   macOS   : exiftool.org Perl dağıtımı + ffmpeg.martin-riedl.de statik derlemesi
 Kullanım: python packaging/fetch_tools.py
