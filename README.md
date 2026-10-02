@@ -3,7 +3,7 @@
 Sürümü öğrenmek için: `python -m metaclean --version` ya da uygulamada **Diğer → MetaClean hakkında**.
 
 Görsel, ses ve video dosyalarından meta veriyi **yeniden kodlamadan** silen, sonucu kanıtlamadan
-kaydetmeyen, Qt6 (PySide6) arayüzlü bir masaüstü uygulaması. macOS ve Linux'ta çalışır. Windows sürümü ayrı bir projede (MetaClean-Windows) geliştiriliyor.
+kaydetmeyen, Qt6 (PySide6) arayüzlü bir masaüstü uygulaması. Windows, macOS ve Linux'ta çalışır.
 
 ## Kullanıcılar için kurulum
 
@@ -14,17 +14,19 @@ açılan **Releases** sayfasından indirilir.
 
 | Sistem | Dosya | Kurulum |
 |---|---|---|
+| Windows 10/11 | `MetaClean-Windows-x64.zip` | Zip'i açın, `MetaClean\MetaClean.exe`'ye çift tıklayın |
 | macOS (M1/M2/M3…) | `MetaClean-macOS-AppleSilicon.dmg` | Açın, `MetaClean`'i Uygulamalar'a sürükleyin |
-| macOS (Intel) | `MetaClean-macOS-Intel.dmg` | Aynı şekilde |
 | Linux (x64) | `MetaClean-Linux-x64.tar.gz` | Açın, klasörde `./install_bundle.sh` çalıştırın |
 
 Paketler imzasız olduğu için ilk açılışta uyarı çıkabilir:
 - **macOS:** Uygulamaya sağ tıklayın → **Aç** → **Aç**.
+- **Windows:** "Windows bilgisayarınızı korudu" ekranında **Ek bilgi** → **Yine de çalıştır**.
 
 ### Kaynak koddan
 | Sistem | Komut |
 |---|---|
 | macOS | `./install_mac.sh` (gerekirse önce `brew install exiftool ffmpeg`). Uygulamalar'a **MetaClean (kaynak)** adıyla kurulur |
+| Windows | `install_windows.bat` dosyasına çift tıklayın (Python, ExifTool, FFmpeg'i winget ile kurar) |
 | Linux | `./install_linux.sh` (apt, dnf ya da pacman ile eksikleri kurar) |
 
 Kurulumu sınamak için:
@@ -67,10 +69,10 @@ pyinstaller --noconfirm packaging/metaclean.spec
 dist/MetaClean/MetaClean --selftest      # macOS: dist/MetaClean.app/Contents/MacOS/MetaClean
 ```
 
-Her paket kendi işletim sisteminde derlenmelidir; bunu GitHub Actions üç makinede yapar.
+Her paket kendi işletim sisteminde derlenmelidir; bunu GitHub Actions üç makinede (Windows, macOS, Linux) yapar.
 Simgeler `metaclean/gui/assets/logo.svg`'den `python packaging/make_icons.py` ile üretilir.
 
-**Lisanslar:** Ayrıntılar `THIRD_PARTY_NOTICES.md` dosyasında. ExifTool Perl lisansı (Artistic/GPL) ile dağıtılır. Linux paketindeki
+**Lisanslar:** Ayrıntılar `THIRD_PARTY_NOTICES.md` dosyasında. ExifTool Perl lisansı (Artistic/GPL) ile dağıtılır. Windows ve Linux paketlerindeki
 FFmpeg LGPL derlemesidir; macOS paketindeki statik derleme GPL'dir. Paketleri dağıtırken bu lisansların
 koşullarına (kaynak koda erişim bildirimi) uyun.
 
@@ -83,16 +85,16 @@ metaclean/
   core/ffverify.py      PCM/kare/paket özetleri ve parametre karşılaştırması
   core/allowlist.py     ExifTool taramasının izin listesi (kapalı varsayılan)
   core/session.py       temp -> 3 kapı -> onay -> atomik kaydetme
-  core/timestamps.py    setattrlist (macOS), os.utime
+  core/timestamps.py    SetFileTime (Windows), setattrlist (macOS), os.utime
   core/fsops.py         kilitli dosyada yeniden deneme, salt okunur denetimi
   applog.py             kayıt: dosya adı ve yolu yazmaz
   gui/                  Qt6 arayüzü (simple_window: ana ekran, advanced_window: gelişmiş mod)
 packaging/              PyInstaller tarifi, araç indirici, simge üretici, Linux .desktop
-.github/workflows/      macOS / Linux için otomatik test ve paketleme
+.github/workflows/      Windows / macOS / Linux için otomatik test ve paketleme
 install_*.sh/.bat       Kaynak koddan kurulum betikleri
 ```
 
 ## Gizlilik ve kayıt dosyası
 MetaClean internete bağlanmaz ve veri toplamaz. Hata ayıklama kaydına dosya adı ya da yolu yazılmaz;
 yollar `<dosya>.jpg` biçimine indirilir. Kayıt yeri: macOS `~/Library/Logs/MetaClean/`,
-Linux `~/.local/state/metaclean/`. Dosya 512 KB'ı aşınca eskisi silinir.
+Linux `~/.local/state/metaclean/`, Windows `%LOCALAPPDATA%\MetaClean\Logs`. Dosya 512 KB'ı aşınca eskisi silinir.

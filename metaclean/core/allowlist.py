@@ -50,8 +50,10 @@ RULES: Dict[str, Dict[str, Rule]] = {
     "File": {"*": True, "Comment": False},  # JPEG COM yorumu File grubunda görünür
     "JFIF": {k: True for k in ("JFIFVersion", "ResolutionUnit", "XResolution", "YResolution")},
     "Adobe": {k: True for k in ("DCTEncodeVersion", "APP14Flags0", "APP14Flags1", "ColorTransform")},
-    # YCbCrPositioning: ExifTool HEIC'te yeni EXIF yazarken zorunlu alan olarak ekler
-    "IFD0": {"Orientation": True, "YCbCrPositioning": True},
+    # YCbCrPositioning ve çözünürlük: ExifTool HEIC'te yeni EXIF yazarken zorunlu alan olarak ekler
+    # (sürüme göre değişir); 72 dpi gibi sabit değerler, kişisel bilgi taşımaz
+    "IFD0": {"Orientation": True, "YCbCrPositioning": True,
+             "XResolution": True, "YResolution": True, "ResolutionUnit": True},
     "PNG": {k: True for k in ("ImageWidth", "ImageHeight", "BitDepth", "ColorType", "Compression", "Filter",
                               "Interlace", "ProfileName", "Gamma", "WhitePointX", "WhitePointY", "RedX", "RedY",
                               "GreenX", "GreenY", "BlueX", "BlueY", "SRGBRendering", "Palette", "Transparency",
@@ -74,6 +76,9 @@ RULES: Dict[str, Dict[str, Rule]] = {
               "VendorID": lambda v: v in ("", "FFmpeg"),
               "Duration": True},
     "Matroska": {**{k: True for k in _MKV_STRUCT},
+                 # Eski ExifTool sürümleri (ör. Ubuntu 24.04'teki 12.76) Info ve Track alanlarını da bu grupta verir
+                 "TimecodeScale": True, "Duration": True, "TagTrackUID": True,
+                 "MuxingApp": lambda v: v == "Lavf", "WritingApp": lambda v: v == "Lavf",
                  "AttachedFileMIMEType": lambda v: bool(FONT_MIME.match(v)),
                  "AttachedFileName": lambda v: v.lower().endswith((".ttf", ".otf", ".ttc", ".woff", ".woff2"))},
     # HDR kazanç haritası (Ultra HDR / ISO 21496-1 / Apple): yalnızca görüntüleme parametreleri
