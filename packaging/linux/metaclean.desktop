@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=MetaClean
+GenericName=Meta veri temizleyici
+Comment=Paylaşmadan önce fotoğraf ve videolardaki gizli bilgileri kaliteyi bozmadan kaldırır
+Exec=metaclean %F
+Icon=metaclean
+Terminal=false
+Categories=Graphics;Utility;
+MimeType=image/jpeg;image/png;image/webp;image/heic;image/avif;video/mp4;video/quicktime;video/x-matroska;video/webm;audio/mpeg;audio/flac;audio/mp4;

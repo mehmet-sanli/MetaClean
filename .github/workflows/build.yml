@@ -1,0 +1,106 @@
+# Her push'ta MetaClean'i Windows, macOS (Apple Silicon + Intel) ve Linux'ta test eder ve paketler.
+# Paketler Actions sayfasındaki "Artifacts" bölümünden indirilir; v* etiketi atılırsa sürüm (Release) açılır.
+name: Derle ve paketle
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: MetaClean-Windows-x64
+          - os: macos-14
+            name: MetaClean-macOS-AppleSilicon
+          - os: macos-13
+            name: MetaClean-macOS-Intel
+          - os: ubuntu-22.04
+            name: MetaClean-Linux-x64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Testlerin örnek dosya üretmesi için kodlayıcılı tam FFmpeg ve ExifTool (yalnızca testte kullanılır)
+      - name: Test araçları (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg libimage-exiftool-perl libegl1 libxkbcommon0 libxcb-cursor0
+      - name: Test araçları (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg exiftool
+      - name: Test araçları (Windows)
+        if: runner.os == 'Windows'
+        run: choco install -y ffmpeg-full exiftool
+
+      - name: Python kütüphaneleri
+        run: python -m pip install -r requirements.txt pyinstaller
+
+      - name: Testler
+        run: python -m unittest discover -s tests -v
+
+      - name: Pakete girecek ExifTool ve FFmpeg
+        run: python packaging/fetch_tools.py
+
+      - name: PyInstaller
+        run: pyinstaller --noconfirm packaging/metaclean.spec
+
+      # Paketin kendi araçlarıyla, sistemdekilere bakmadan çalıştığını kanıtla
+      - name: Paket sınaması
+        run: |
+          set +e
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            ./dist/MetaClean/MetaClean.exe --selftest
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            ./dist/MetaClean.app/Contents/MacOS/MetaClean --selftest
+          else
+            QT_QPA_PLATFORM=offscreen ./dist/MetaClean/MetaClean --selftest
+          fi
+          code=$?
+          cat "$(python -c 'import tempfile;print(tempfile.gettempdir())')/metaclean-selftest.txt"
+          exit $code
+
+      - name: Arşivle
+        run: |
+          mkdir -p out
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            7z a "out/${{ matrix.name }}.zip" ./dist/MetaClean
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            ditto -c -k --keepParent dist/MetaClean.app "out/${{ matrix.name }}.zip"
+          else
+            cp packaging/linux/metaclean.desktop packaging/linux/install_bundle.sh dist/MetaClean/
+            cp metaclean/gui/assets/logo-512.png dist/MetaClean/metaclean.png
+            tar -C dist -czf "out/${{ matrix.name }}.tar.gz" MetaClean
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: out/*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
