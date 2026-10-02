@@ -12,8 +12,8 @@ açılan **Releases** sayfasından indirilir.
 
 | Sistem | Dosya | Kurulum |
 |---|---|---|
-| macOS (M1/M2/M3…) | `MetaClean-macOS-AppleSilicon.zip` | Açın, `MetaClean.app`'i Uygulamalar'a sürükleyin |
-| macOS (Intel) | `MetaClean-macOS-Intel.zip` | Aynı şekilde |
+| macOS (M1/M2/M3…) | `MetaClean-macOS-AppleSilicon.dmg` | Açın, `MetaClean`'i Uygulamalar'a sürükleyin |
+| macOS (Intel) | `MetaClean-macOS-Intel.dmg` | Aynı şekilde |
 | Linux (x64) | `MetaClean-Linux-x64.tar.gz` | Açın, klasörde `./install_bundle.sh` çalıştırın |
 
 Paketler imzasız olduğu için ilk açılışta uyarı çıkabilir:

@@ -68,7 +68,10 @@ jobs:
         run: |
           mkdir -p out
           if [ "$RUNNER_OS" = "macOS" ]; then
-            ditto -c -k --keepParent dist/MetaClean.app "out/${{ matrix.name }}.zip"
+            # Tek dosya: açılınca "Uygulamalar'a sürükle" penceresi çıkan sıkıştırılmış DMG
+            mkdir -p dmg && ditto dist/MetaClean.app dmg/MetaClean.app && ln -s /Applications dmg/Uygulamalar
+            hdiutil create -volname MetaClean -srcfolder dmg -fs HFS+ -format UDZO -imagekey zlib-level=9 \
+              -ov "out/${{ matrix.name }}.dmg"
           else
             cp packaging/linux/metaclean.desktop packaging/linux/install_bundle.sh dist/MetaClean/
             cp metaclean/gui/assets/logo-512.png dist/MetaClean/metaclean.png

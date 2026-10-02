@@ -17,6 +17,13 @@ import tarfile
 import urllib.request
 import zipfile
 
+# Windows konsolu varsayılan olarak cp1252 kullanır; Türkçe çıktı betiği çökertmesin
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except AttributeError:
+        pass
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 BIN = os.path.join(HERE, "bin")
 UA = {"User-Agent": "MetaClean-build"}
