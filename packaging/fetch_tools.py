@@ -28,6 +28,18 @@ def get(url: str) -> bytes:
         return r.read()
 
 
+def get_first(urls) -> bytes:
+    """exiftool.org yeni sürümün arşivini ver.txt'ten sonra yayımlayabiliyor; resmî ayna SourceForge."""
+    last = None
+    for u in urls:
+        try:
+            return get(u)
+        except OSError as e:  # HTTPError, URLError
+            print("    olmadı:", e)
+            last = e
+    raise last
+
+
 def arch() -> str:
     m = platform.machine().lower()
     return "arm64" if m in ("arm64", "aarch64") else "x64"
@@ -39,7 +51,8 @@ def fetch_exiftool() -> None:
     shutil.rmtree(dest, ignore_errors=True)
     os.makedirs(dest)
     if os.name == "nt":
-        with zipfile.ZipFile(io.BytesIO(get(f"https://exiftool.org/exiftool-{ver}_64.zip"))) as z:
+        with zipfile.ZipFile(io.BytesIO(get_first([f"https://exiftool.org/exiftool-{ver}_64.zip",
+                                                   f"https://sourceforge.net/projects/exiftool/files/exiftool-{ver}_64.zip/download"]))) as z:
             for m in z.namelist():
                 rel = m.split("/", 1)[1] if "/" in m else m
                 if not rel or m.endswith("/"):
@@ -51,7 +64,8 @@ def fetch_exiftool() -> None:
                 with open(out, "wb") as f:
                     f.write(z.read(m))
     else:
-        with tarfile.open(fileobj=io.BytesIO(get(f"https://exiftool.org/Image-ExifTool-{ver}.tar.gz"))) as t:
+        with tarfile.open(fileobj=io.BytesIO(get_first([f"https://exiftool.org/Image-ExifTool-{ver}.tar.gz",
+                                                f"https://sourceforge.net/projects/exiftool/files/Image-ExifTool-{ver}.tar.gz/download"]))) as t:
             prefix = f"Image-ExifTool-{ver}/"
             for m in t.getmembers():
                 rel = m.name[len(prefix):] if m.name.startswith(prefix) else ""

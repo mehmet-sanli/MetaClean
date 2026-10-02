@@ -128,7 +128,7 @@ class PipelineTests(unittest.TestCase):
 
     def test_unsupported_rejected(self):
         path = os.path.join(self.dir, "metin.jpg")  # uzantı yalan söylüyor
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write("bu bir resim değil")
         r = Job(path).prepare()
         self.assertIn("Desteklenmeyen", r.error or "")
