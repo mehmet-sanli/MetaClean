@@ -33,14 +33,6 @@ Hepsi masaüstüne logolu bir MetaClean kısayolu koyar. Kurulumu sınamak için
 python -m metaclean --selftest
 ```
 
-## Geliştiriciler için
-
-```
-pip install -r requirements.txt
-python -m metaclean               # basit mod
-python -m metaclean --gelismis    # gelişmiş mod
-```
-
 ## Testler
 
 ```
