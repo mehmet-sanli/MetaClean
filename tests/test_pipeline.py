@@ -136,21 +136,15 @@ class PipelineTests(unittest.TestCase):
 
     def test_newline_in_filename_cannot_inject_exiftool_args(self):
         # ExifTool -@ arg dosyası satır başına bir argüman alır; dosya adındaki satır sonu
-        # -if/-api ile Perl komutu enjekte etmeye çalışabilir. Reddedilmeli, komut çalışmamalı.
-        name = "a.jpg\n-if\nsystem(q{touch KANIT}) || 1\na.jpg"  # satır sonu + Perl komutu (eğik çizgisiz)
-        path = os.path.join(self.dir, name)
-        shutil.copyfile(os.path.join(self.samples, "foto.jpg"), path)
-        cwd = os.getcwd()
-        os.chdir(self.dir)  # enjekte edilen komut çalışırsa KANIT burada oluşurdu
-        try:
-            r = Job(path).prepare()
-        finally:
-            os.chdir(cwd)
-        self.assertFalse(r.ok)
-        self.assertIn("satır sonu", r.error or "")
-        self.assertFalse(os.path.exists(os.path.join(self.dir, "KANIT")),
-                         "enjekte edilen komut çalışmış olmamalı")
-        self.assertEqual(self.leftovers(), [])
+        # -if/-api ile Perl komutu enjekte etmeye çalışabilir. Bu ad ExifTool'a hiç ulaşmamalı.
+        # (Dosyayı gerçekten oluşturmuyoruz: Windows satır sonlu ad oluşturmaya zaten izin vermez;
+        #  savunma, adın ExifTool arg dosyasına yazıldığı katmanda sınanıyor.)
+        evil = "a.jpg\n-if\nsystem(q{touch KANIT}) || 1\na.jpg"
+        with self.assertRaises(tools.ToolError) as cm:
+            tools.exiftool_scan(os.path.join(self.dir, evil))
+        self.assertIn("satır sonu", str(cm.exception))
+        with self.assertRaises(tools.ToolError):
+            tools.exiftool_write(["-all=", "-o", os.path.join(self.dir, evil)])
 
     # ---------------------------------------------------------------- kapılar gerçekten yakalıyor mu
     def test_equivalence_gate_catches_pixel_change(self):
