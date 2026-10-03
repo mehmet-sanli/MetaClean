@@ -53,9 +53,16 @@ def selftest() -> int:
         shutil.rmtree(tmp, ignore_errors=True)
     lines.append("SONUÇ: " + ("BAŞARILI" if ok else "BAŞARISIZ"))
     text = "\n".join(lines)
-    print(text, flush=True)
     with open(os.path.join(tempfile.gettempdir(), "metaclean-selftest.txt"), "w", encoding="utf-8") as f:
         f.write(text)  # Windows'ta pencereli uygulamanın konsol çıktısı görünmez
+    if sys.stdout:
+        # Paketlenmiş uygulama PYTHONUTF8'i yok sayar; cp1252 konsolda Türkçe harf hata verip
+        # pencereli Windows paketinde kapanmayan bir hata kutusu açıyordu
+        try:
+            sys.stdout.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+        print(text, flush=True)
     return 0 if ok else 1
 
 

@@ -134,6 +134,24 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("Desteklenmeyen", r.error or "")
         self.assertEqual(self.leftovers(), [])
 
+    def test_newline_in_filename_cannot_inject_exiftool_args(self):
+        # ExifTool -@ arg dosyası satır başına bir argüman alır; dosya adındaki satır sonu
+        # -if/-api ile Perl komutu enjekte etmeye çalışabilir. Reddedilmeli, komut çalışmamalı.
+        name = "a.jpg\n-if\nsystem(q{touch KANIT}) || 1\na.jpg"  # satır sonu + Perl komutu (eğik çizgisiz)
+        path = os.path.join(self.dir, name)
+        shutil.copyfile(os.path.join(self.samples, "foto.jpg"), path)
+        cwd = os.getcwd()
+        os.chdir(self.dir)  # enjekte edilen komut çalışırsa KANIT burada oluşurdu
+        try:
+            r = Job(path).prepare()
+        finally:
+            os.chdir(cwd)
+        self.assertFalse(r.ok)
+        self.assertIn("satır sonu", r.error or "")
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "KANIT")),
+                         "enjekte edilen komut çalışmış olmamalı")
+        self.assertEqual(self.leftovers(), [])
+
     # ---------------------------------------------------------------- kapılar gerçekten yakalıyor mu
     def test_equivalence_gate_catches_pixel_change(self):
         orig_clean = images.JpegHandler.clean

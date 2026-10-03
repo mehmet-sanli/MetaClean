@@ -87,6 +87,9 @@ RULES: Dict[str, Dict[str, Rule]] = {
     "XMP-HDRGainMap": {"*": True},
     "XMP-GContainer": {k: True for k in ("DirectoryItemSemantic", "DirectoryItemMime", "DirectoryItemLength",
                                          "DirectoryItemPadding")},
+    # Eski ExifTool sürümleri (ör. Ubuntu 24.04'teki 12.76) aynı dizini XMP-Container grubunda verir
+    "XMP-Container": {k: True for k in ("DirectoryItemSemantic", "DirectoryItemMime", "DirectoryItemLength",
+                                        "DirectoryItemPadding")},
     "MPF0": {k: True for k in ("MPFVersion", "NumberOfImages")},
     "MPImage": {k: True for k in ("MPImageFlags", "MPImageFormat", "MPImageType", "MPImageLength", "MPImageStart",
                                   "DependentImage1EntryNumber", "DependentImage2EntryNumber")},

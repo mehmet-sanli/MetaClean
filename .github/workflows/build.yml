@@ -22,6 +22,7 @@ jobs:
           - os: ubuntu-24.04
             name: MetaClean-Linux-x64
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45  # Takılan bir adım 6 saat beklemesin
     env:
       PYTHONUTF8: "1"  # Windows konsolu Türkçe çıktıyı bozmasın
     defaults:
@@ -59,6 +60,7 @@ jobs:
 
       # Paketin kendi araçlarıyla, sistemdekilere bakmadan çalıştığını kanıtla
       - name: Paket sınaması
+        timeout-minutes: 5
         run: |
           set +e
           if [ "$RUNNER_OS" = "Windows" ]; then

@@ -128,13 +128,23 @@ def run(args: List[str], *, log: Optional[List[str]] = None, stdin: Optional[byt
     return subprocess.CompletedProcess(args, p.returncode, out, err)
 
 
+def _argfile(args: List[str]) -> bytes:
+    """ExifTool'un -@ arg dosyası her satırı ayrı bir argüman sayar. Bir dosya adında satır sonu
+    varsa ad birden çok argümana bölünür ve -if/-api üzerinden ExifTool'un Perl motoruna komut
+    enjekte edilebilir. Satır sonu içeren hiçbir argümanı ExifTool'a geçirme."""
+    for a in args:
+        if "\n" in a or "\r" in a:
+            raise ToolError("Dosya adında satır sonu karakteri var; güvenlik gereği işlenmedi.")
+    return ("\n".join(args) + "\n").encode("utf-8")
+
+
 def exiftool_scan(path: str, *, log=None, cancel=None) -> Dict[str, object]:
     """exiftool -a -u -G1 -ee taraması. Argümanlar stdin'den verilir:
     Windows'ta Unicode dosya adları komut satırından ExifTool'a bozulmadan ulaşmaz."""
     exe = command("exiftool")
-    argfile = "\n".join(["-j", "-a", "-u", "-G1", "-ee", "-api", "LargeFileSupport=1", path]) + "\n"
+    argfile = _argfile(["-j", "-a", "-u", "-G1", "-ee", "-api", "LargeFileSupport=1", path])
     cp = run([*exe, "-charset", "filename=utf8", "-@", "-"], log=log,
-             stdin=argfile.encode("utf-8"), cancel=cancel)
+             stdin=argfile, cancel=cancel)
     if cp.returncode not in (0, 1) or not cp.stdout.strip():
         raise ToolError("ExifTool taraması başarısız: " + cp.stderr.decode("utf-8", "replace").strip())
     data = json.loads(cp.stdout.decode("utf-8", "replace"))
@@ -143,9 +153,8 @@ def exiftool_scan(path: str, *, log=None, cancel=None) -> Dict[str, object]:
 
 def exiftool_write(args: List[str], *, log=None, cancel=None) -> None:
     exe = command("exiftool")
-    argfile = "\n".join(args) + "\n"
     cp = run([*exe, "-charset", "filename=utf8", "-@", "-"], log=log,
-             stdin=argfile.encode("utf-8"), cancel=cancel)
+             stdin=_argfile(args), cancel=cancel)
     if cp.returncode != 0:
         raise ToolError("ExifTool yazamadı: " + cp.stderr.decode("utf-8", "replace").strip())
 
