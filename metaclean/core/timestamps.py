@@ -73,10 +73,10 @@ def birth_time(path: str) -> Optional[float]:
     return None
 
 
-def apply(path: str, when: Optional[float] = None) -> List[str]:
-    """Üç damgayı da `when` (varsayılan: şimdi) anına çeker, geri okuyup doğrular.
+def apply(path: str) -> List[str]:
+    """Üç damgayı da şu ana (kaydetme anı) çeker, geri okuyup doğrular. Orijinalin tarihleri kopyaya taşınmaz.
     Dosyayı en son adımda çağırın: sonraki her okuma erişim zamanını oynatabilir."""
-    ts = time.time() if when is None else when
+    ts = time.time()
     notes: List[str] = []
     birth_ok: Optional[bool] = None
     try:

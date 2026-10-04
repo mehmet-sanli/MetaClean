@@ -58,6 +58,9 @@ RULES: Dict[str, Dict[str, Rule]] = {
                               "Interlace", "ProfileName", "Gamma", "WhitePointX", "WhitePointY", "RedX", "RedY",
                               "GreenX", "GreenY", "BlueX", "BlueY", "SRGBRendering", "Palette", "Transparency",
                               "SignificantBits", "AnimationFrames", "AnimationPlays")},
+    # cICP: renk/HDR kodlama (macOS ekran görüntüleri, Display P3). Görüntüleme için korunur, kişisel değildir
+    "PNG-cICP": {k: True for k in ("ColorPrimaries", "TransferCharacteristics", "MatrixCoefficients",
+                                   "VideoFullRangeFlag")},
     "RIFF": {k: True for k in ("VP8Version", "ImageWidth", "ImageHeight", "HorizontalScale", "VerticalScale",
                                "WebP_Flags", "AlphaIsUsed", "AlphaPreprocessing", "AlphaFiltering",
                                "AlphaCompression", "BackgroundColor", "AnimationLoopCount", "FrameCount")},

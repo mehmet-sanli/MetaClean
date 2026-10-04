@@ -11,6 +11,7 @@ MetaClean paketleri aşağıdaki bileşenleri içerir. Her biri kendi lisansıyl
 | Pillow | Görüntü çözme (doğrulama) | MIT-CMU (HPND) | https://python-pillow.org |
 | pillow-heif / libheif | HEIC çözme | BSD-3 / LGPL 3 | https://github.com/bigcat88/pillow_heif |
 | mutagen | Ses etiketleri | GPL 2+ | https://github.com/quodlibet/mutagen |
+| PyObjC (yalnızca macOS) | Fotoğraflar, Safari, Mail'den sürükle-bırak (dosya sözleri) | MIT | https://github.com/ronaldoussoren/pyobjc |
 
 **LGPL ve GPL bileşenleri için:** Paketler bu kütüphaneleri değiştirmeden içerir; kaynak kodları yukarıdaki
 adreslerdedir. FFmpeg'in GPL derlemesini içeren macOS paketini dağıtırken GPL koşulları (kaynak koda

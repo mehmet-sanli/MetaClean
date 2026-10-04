@@ -84,13 +84,8 @@ def main() -> int:
     from PySide6.QtGui import QIcon
     assets = os.path.join(os.path.dirname(__file__), "gui", "assets")
     app.setWindowIcon(QIcon(os.path.join(assets, "logo.svg")))
-    if "--gelismis" in sys.argv:
-        sys.argv.remove("--gelismis")
-        from .gui.advanced_window import AdvancedWindow
-        win = AdvancedWindow()
-    else:
-        from .gui.simple_window import SimpleWindow
-        win = SimpleWindow()
+    from .gui.simple_window import SimpleWindow
+    win = SimpleWindow()
     win.show()
     if len(sys.argv) > 1:
         win.add_paths(sys.argv[1:])

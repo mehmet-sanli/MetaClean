@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import io
 import os
+import struct
 import subprocess
 import sys
+import zlib
 
 from PIL import Image, ImageCms
 from PIL.PngImagePlugin import PngInfo
@@ -23,6 +25,14 @@ def write(path: str, data) -> None:
     else:
         with open(path, "wb") as f:
             f.write(data)
+
+
+def png_insert_before_idat(path: str, ctype: bytes, data: bytes) -> None:
+    raw = open(path, "rb").read()
+    i = raw.index(b"IDAT") - 4
+    chunk = struct.pack(">I", len(data)) + ctype + data + struct.pack(">I", zlib.crc32(ctype + data) & 0xFFFFFFFF)
+    with open(path, "wb") as f:
+        f.write(raw[:i] + chunk + raw[i:])
 
 
 def sh(*args):
@@ -117,6 +127,8 @@ def main(d: str):
     info.add_itxt("Comment", "Konum: İstanbul")
     gradient(mode="RGBA").save(p("ekran.png"), pnginfo=info, exif=exif_bytes(8), icc_profile=srgb, dpi=(144, 144))
     sh("exiftool", "-q", "-overwrite_original", "-PNG:CreationTime=2026:08:15 14:22:33", "-XMP-dc:Rights=gizli", p("ekran.png"))
+    # macOS ekran görüntüleri (Display P3) cICP renk kodlama bloğu taşır; korunmalı, kapıyı düşürmemeli
+    png_insert_before_idat(p("ekran.png"), b"cICP", bytes([12, 13, 0, 1]))
     with open(p("ekran.png"), "ab") as f:
         f.write(b"TRAILER")
 

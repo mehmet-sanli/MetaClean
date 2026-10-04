@@ -14,7 +14,6 @@ import metaclean  # noqa: E402
 from metaclean import applog  # noqa: E402
 from metaclean.core import categories, fsops  # noqa: E402
 from metaclean.core.report import Field, Report  # noqa: E402
-from metaclean.core.session import in_managed_library  # noqa: E402
 
 
 class VersionTests(unittest.TestCase):
@@ -54,6 +53,42 @@ class CategoryTests(unittest.TestCase):
                              removed=["EXIF (APP1) – kamera, tarih, GPS, küçük resim, üretici notları, 62 bayt"])
         self.assertNotIn("Küçük resim / kapak", out)
 
+    def test_generic_exif_text_is_not_location(self):
+        # Gerileme: GPS'siz fotoğrafın kartında "Konum kaldırıldı" yazıyordu
+        out = self.summarize([("XMP-x", "XMPToolkit", "XMP Core 6.0.0")],
+                             removed=["EXIF (APP1) – kamera, tarih, GPS, küçük resim, üretici notları, 202 bayt"])
+        self.assertNotIn("Konum", out)
+        self.assertIn("Konum", self.summarize([], removed=["İz 3: Kamera hareket/GPS izi (camm)"]))
+
+    def test_readable_labels_and_values(self):
+        scan = {"IFD0:Make": "Canon", "ExifIFD:DateTimeOriginal": "2026:08:15 14:22:33",
+                "GPS:GPSLatitudeRef": "North", "GPS:GPSLatitude": "41 deg 0' 29.50\" N",
+                "Composite:GPSPosition": "41 deg 0' 29.50\" N, 28 deg 58' 42.00\" E",
+                "XMP-iptcExt:DigitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia",
+                "ICC_Profile:ProfileDescription": "Display P3", "System:FileName": "IMG_1.jpg"}
+        out = {title: rows for _, title, rows in categories.readable(scan)}
+        self.assertEqual(out["Cihaz bilgisi"], [("Cihaz markası", "Canon", "silinir")])
+        self.assertEqual(out["Tarih ve saat"], [("Çekim tarihi", "15 Ağustos 2026, 14:22", "silinir")])
+        self.assertEqual(out["Konum"], [("Konum (koordinat)", "41°0'29.50\" N, 28°58'42.00\" E", "silinir")])
+        self.assertEqual(out["İçerik kaynağı"][0][1], "Yapay zekâ ile üretilmiş")
+        self.assertIn(("Renk profili", "Display P3", "korunur"), out["Korunan (kişisel değil)"])
+        self.assertNotIn("IMG_1.jpg", str(out))  # dosya sistemi bilgisi listelenmez
+
+    def test_video_location_single_readable_row(self):
+        # iPhone videosu konumu iki alanda taşır (Keys ISO 6709 + UserData 3GPP); tek ve okunur satır olmalı
+        scan = {"Keys:Location": "+41.0082+028.9784/",
+                "UserData:LocationInformation": "(none) Role=shooting Lat=41.00819 Lon=28.97839 Alt=0.00 Body=earth"}
+        konum = {t: rows for _, t, rows in categories.readable(scan)}["Konum"]
+        self.assertEqual(konum, [("Konum (koordinat)", "41°0'29.52\" N, 28°58'42.24\" E", "silinir")])
+
+    def test_no_location_means_no_location_section(self):
+        out = {t for _, t, _ in categories.readable({"IFD0:Make": "Canon", "ExifIFD:ColorSpace": "sRGB"})}
+        self.assertNotIn("Konum", out, "konum yoksa konumla ilgili hiçbir şey gösterilmemeli")
+
+    def test_place_name_shown_as_place(self):
+        konum = {t: rows for _, t, rows in categories.readable({"Vorbis:Location": "İstanbul"})}["Konum"]
+        self.assertEqual(konum, [("Yer", "İstanbul", "silinir")])
+
     def test_real_thumbnail_and_cover(self):
         self.assertIn("Küçük resim / kapak", self.summarize([], removed=["JFIF küçük resmi (300 bayt)"]))
         self.assertIn("Küçük resim / kapak", self.summarize([], removed=["İz 1: kapak resmi (mjpeg)"]))
@@ -64,6 +99,17 @@ class CategoryTests(unittest.TestCase):
     def test_numeric_values_hidden(self):
         out = self.summarize([("XMP-dc", "Rating", "5")])
         self.assertEqual(out["Açıklama ve etiketler"], "")
+
+
+class GalleryDropTests(unittest.TestCase):
+    def test_when_promises_are_used(self):
+        from metaclean.gui.macdrop import use_promises
+        lib = "/Users/a/Pictures/Photos Library.photoslibrary/resources/derivatives/x.jpeg"
+        self.assertTrue(use_promises([], True), "yol yok, söz var: galeriden al")
+        self.assertTrue(use_promises([lib], True), "kütüphane önizlemesi yerine orijinali al")
+        self.assertFalse(use_promises(["/Users/a/Desktop/a.jpg"], True), "Finder yolu öncelikli")
+        self.assertFalse(use_promises([], False))
+        self.assertFalse(use_promises([lib], False), "söz yoksa eski açıklama gösterilir")
 
 
 class LogPrivacyTests(unittest.TestCase):
@@ -117,9 +163,6 @@ class FsOpsTests(unittest.TestCase):
         with self.assertRaisesRegex(PermissionError, "başka bir program"):
             fsops.retry_on_lock(locked, "Deneme", attempts=3, delay=0)
 
-    def test_managed_library(self):
-        self.assertTrue(in_managed_library("/Users/a/Pictures/Photos Library.photoslibrary/originals/1/x.jpg"))
-        self.assertFalse(in_managed_library("/Users/a/Pictures/foto.jpg"))
 
 
 if __name__ == "__main__":

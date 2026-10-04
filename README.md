@@ -60,6 +60,19 @@ akışını (izinler, sembolik bağ, orijinalin araya girip değişmesi, zaman d
 
 Format, uzantıya göre değil dosya imzasına göre tanınır. Tanınmayan dosya reddedilir.
 
+## Nasıl kullanılır
+
+1. **Bırakın:** Dosyayı pencereye sürükleyin ya da **Dosya seç**'e basın. Finder/Gezgin'in yanında macOS'ta
+   **Fotoğraflar**, Safari ve Mail'den de sürüklenebilir; galerinin orijinali alınır, önizlemesi değil.
+2. **Görün:** Pencerenin altındaki panel dosyadaki bilgileri anlaşılır adlarla gösterir (📍 Konum, 📷 Cihaz,
+   🕒 Tarih, 🤖 yapay zekâ etiketi…). Konum yalnızca dosyada varsa gösterilir.
+3. **Kaydedin:** Temiz kopya sistemin geçici klasöründe hazırlanıp doğrulanır. **Kaydet**'e basmadan hiçbir yere
+   bir şey yazılmaz; basınca masaüstündeki **Paylaşıma Hazır** klasörüne `foto-1.jpg` gibi tarih ve cihaz
+   taşımayan bir adla kaydedilir. **Vazgeç** hiçbir dosya bırakmaz.
+
+Kaydedilen dosyanın içinde tarih ya da saat kalmaz. Dosyanın kendi oluşturulma/değiştirilme tarihi
+orijinalden taşınmaz; kaydetme anı yazılır (Linux'ta oluşturulma tarihi değiştirilemez).
+
 ## Paketleme
 
 ```
@@ -84,17 +97,22 @@ metaclean/
   core/handlers/        format başına temizle + doğrula (images, audio, video)
   core/ffverify.py      PCM/kare/paket özetleri ve parametre karşılaştırması
   core/allowlist.py     ExifTool taramasının izin listesi (kapalı varsayılan)
-  core/session.py       temp -> 3 kapı -> onay -> atomik kaydetme
+  core/session.py       geçici klasör -> 3 kapı -> onay -> kopya kaydetme (orijinale hiç yazılmaz)
   core/timestamps.py    SetFileTime (Windows), setattrlist (macOS), os.utime
   core/fsops.py         kilitli dosyada yeniden deneme, salt okunur denetimi
   applog.py             kayıt: dosya adı ve yolu yazmaz
-  gui/                  Qt6 arayüzü (simple_window: ana ekran, advanced_window: gelişmiş mod)
+  core/categories.py    alan adlarını ve değerleri herkesin anlayacağı Türkçeye çevirir
+  gui/simple_window.py  Qt6 arayüzü: tek pencere (bırak -> gör -> Kaydet)
+  gui/metapanel.py      ana ekranın altındaki meta veri paneli
+  gui/macdrop.py        macOS galerilerinden sürükle-bırak (dosya sözleri, PyObjC)
 packaging/              PyInstaller tarifi, araç indirici, simge üretici, Linux .desktop
 .github/workflows/      Windows / macOS / Linux için otomatik test ve paketleme
 install_*.sh/.bat       Kaynak koddan kurulum betikleri
 ```
 
 ## Gizlilik ve kayıt dosyası
-MetaClean internete bağlanmaz ve veri toplamaz. Hata ayıklama kaydına dosya adı ya da yolu yazılmaz;
+MetaClean internete bağlanmaz ve veri toplamaz. Ana ekran, siz **Kaydet**'e basmadan klasörlerinize hiçbir
+şey yazmaz. Galeriden sürüklenen fotoğrafın işlem için alınan geçici kopyası iş biter bitmez silinir;
+galerideki fotoğrafa dokunulmaz. Hata ayıklama kaydına dosya adı ya da yolu yazılmaz;
 yollar `<dosya>.jpg` biçimine indirilir. Kayıt yeri: macOS `~/Library/Logs/MetaClean/`,
 Linux `~/.local/state/metaclean/`, Windows `%LOCALAPPDATA%\MetaClean\Logs`. Dosya 512 KB'ı aşınca eskisi silinir.

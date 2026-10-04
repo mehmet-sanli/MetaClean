@@ -1,17 +1,8 @@
-"""Dosya sistemi yardımcıları: kilitli dosyada yeniden deneme ve salt okunur denetimi."""
+"""Dosya sistemi yardımcıları: kilitli dosyada yeniden deneme."""
 from __future__ import annotations
 
-import os
-import stat
 import time
 from typing import Callable
-
-
-def is_readonly(path: str) -> bool:
-    """Windows'ta salt okunur özniteliği, diğerlerinde yazma izni."""
-    if os.name == "nt":
-        return bool(os.stat(path).st_file_attributes & stat.FILE_ATTRIBUTE_READONLY)
-    return not os.access(path, os.W_OK)
 
 
 def retry_on_lock(action: Callable[[], None], what: str, attempts: int = 12, delay: float = 0.25) -> None:

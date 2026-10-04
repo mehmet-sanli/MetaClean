@@ -1,14 +1,14 @@
-"""Bir dosyanın uçtan uca akışı: incele -> temizle -> 3 kapı -> onay -> kaydet/kopya/iptal."""
+"""Bir dosyanın uçtan uca akışı: incele -> temizle -> 3 kapı -> onay -> kopya kaydet / vazgeç.
+Orijinal dosyaya hiçbir zaman yazılmaz; temiz sürüm her zaman ayrı bir kopyadır."""
 from __future__ import annotations
 
 import atexit
 import hashlib
 import os
-import re
 import shutil
 import tempfile
 import threading
-from typing import Callable, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from . import allowlist, detect, fsops, timestamps, tools
 from .handlers.audio import FlacHandler, Mp3Handler
@@ -66,22 +66,21 @@ def _fsync_dir(path: str) -> None:
         os.close(fd)
 
 
-def in_managed_library(path: str) -> bool:
-    """Uygulamaların kendi veritabanıyla yönettiği arşivler (dışarıdan değiştirilmemeli)."""
-    parts = os.path.normpath(path).split(os.sep)
-    return any(p.endswith((".photoslibrary", ".aplibrary", ".migratedphotolibrary")) for p in parts)
+KIND_PREFIX = {"image": "foto", "video": "video", "audio": "ses"}
 
 
-def suggest_copy_name(real: str, fmt: str) -> str:
-    """Kopya için nötr ad. IMG_20260815_142233 gibi tarih taşıyan adlar önerilmez."""
-    folder, name = os.path.split(real)
-    stem = os.path.splitext(name)[0]
-    base = "temiz" if re.search(r"\d{6,}", stem) else f"{stem}-temiz"
-    ext = detect.ext(fmt)
-    cand, n = os.path.join(folder, base + ext), 2
-    while os.path.exists(cand):
-        cand, n = os.path.join(folder, f"{base}-{n}{ext}"), n + 1
-    return cand
+def neutral_name(folder: str, fmt: str) -> str:
+    """Tarih ya da cihaz adı taşımayan ad (foto-1.jpg, video-2.mp4…). Ad hemen ayrılır: aynı anda
+    kaydedilen iki dosya aynı adı seçip birbirini ezmesin."""
+    prefix, ext = KIND_PREFIX[detect.kind(fmt)], detect.ext(fmt)
+    n = 1
+    while True:
+        path = os.path.join(folder, f"{prefix}-{n}{ext}")
+        try:
+            os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644))
+            return path
+        except FileExistsError:
+            n += 1
 
 
 class Job:
@@ -100,22 +99,21 @@ class Job:
         return self.out is not None and self.report.ok
 
     # ------------------------------------------------------------ hazırlık
-    def prepare(self, progress: Callable[[str], None] = lambda s: None) -> Report:
+    def prepare(self, progress: Callable[[str], None] = lambda s: None,
+                scan: Optional[Dict[str, object]] = None) -> Report:
+        """scan: arayüzün önceden aldığı ExifTool taraması; verilirse ikinci kez taranmaz."""
         r = self.report
         try:
             if not os.path.isfile(self.real):
                 raise ValueError("Normal bir dosya değil")
             if os.path.abspath(self.path) != self.real:
                 r.warnings.append(f"Sembolik bağ çözüldü; asıl dosya işlenecek: {self.real}")
-            if os.stat(self.real).st_nlink > 1:
-                r.warnings.append("Bu dosyanın başka sabit bağları (hard link) var. 'Kaydet' yalnızca bu adı "
-                                  "değiştirir; diğer adlar eski, kirli içeriği göstermeye devam eder.")
             fmt = detect.detect(self.real)
             if not fmt:
                 # Temizlenemese de meta veri gösterilebilir (PDF, Word, RAW…); yalnızca okunur
                 if tools.find_tool("exiftool"):
                     progress("Meta veri okunuyor (ExifTool)")
-                    r.scan = tools.exiftool_scan(self.real, log=r.log, cancel=self.cancel)
+                    r.scan = scan or tools.exiftool_scan(self.real, log=r.log, cancel=self.cancel)
                     r.found = allowlist.sensitive(r.scan)
                 raise ValueError("Desteklenmeyen biçim: bu dosya temizlenemez (imzası desteklenen biçimlerden biri değil). "
                                  "Meta verisi yalnızca görüntülenebilir; 'Meta veri' sekmesine bakın.")
@@ -124,12 +122,12 @@ class Job:
                 tools.require(t)
             progress("Orijinalin SHA-256 özeti alınıyor")
             self.orig_sig = signature(self.real)
-            folder = os.path.dirname(self.real)
+            # Sistemin geçici klasörü (yalnızca kullanıcıya açık): onay alınmadan kullanıcının
+            # klasörlerine hiçbir şey yazılmaz
             try:
-                self.workdir = tempfile.mkdtemp(prefix=".metaclean-", dir=folder)
+                self.workdir = tempfile.mkdtemp(prefix="metaclean-")
             except OSError as e:
-                raise ValueError(f"Dosyanın klasörüne yazılamıyor ({e}). Geçici dosya orijinalle aynı "
-                                 "klasörde olmalı: atomik değiştirme yalnızca aynı disk bölümünde mümkün.")
+                raise ValueError(f"Geçici klasöre yazılamıyor ({e}).")
             _LIVE_WORKDIRS.add(self.workdir)
             def step(text: str) -> None:
                 if self.cancel.is_set():
@@ -139,7 +137,7 @@ class Job:
             ctx = Context(self.real, self.workdir, fmt, r, self.options, self.cancel, step)
 
             step("Meta veri taranıyor (ExifTool)")
-            r.scan = tools.exiftool_scan(self.real, log=r.log, cancel=self.cancel)
+            r.scan = scan or tools.exiftool_scan(self.real, log=r.log, cancel=self.cancel)
             r.found = allowlist.sensitive(r.scan, fmt)
             handler = make_handler(fmt)
             step("Temizleniyor")
@@ -182,27 +180,7 @@ class Job:
         return Gate("Temizlik", ok, details)
 
     # ------------------------------------------------------------ onay sonrası
-    def save_replace(self, when: Optional[float] = None) -> List[str]:
-        if not self.ready:
-            raise RuntimeError("Kaydedilecek doğrulanmış dosya yok.")
-        if in_managed_library(self.real):
-            raise RuntimeError("Bu dosya bir fotoğraf arşivinin (ör. macOS Fotoğraflar) içinde. Arşivin içindeki "
-                               "dosyayı değiştirmek arşivi bozabilir; 'Kopya olarak kaydet'i kullanın.")
-        if signature(self.real) != self.orig_sig:
-            self.discard()
-            raise RuntimeError("Orijinal dosya onay beklenirken değişti; kaydetme iptal edildi.")
-        if fsops.is_readonly(self.real):
-            raise RuntimeError("Orijinal dosya salt okunur; üzerine yazılamaz. 'Kopya olarak kaydet'i kullanın.")
-        _fsync_file(self.out)
-        shutil.copymode(self.real, self.out)  # yalnızca izinler; copy2/copystat eski damgaları taşır
-        out = self.out
-        fsops.retry_on_lock(lambda: os.replace(out, self.real), "Orijinal dosya")
-        _fsync_dir(os.path.dirname(self.real))
-        self.out = None
-        self.discard()
-        return timestamps.apply(self.real, when)
-
-    def save_copy(self, dest: str, when: Optional[float] = None) -> List[str]:
+    def save_copy(self, dest: str) -> List[str]:
         if not self.ready:
             raise RuntimeError("Kaydedilecek doğrulanmış dosya yok.")
         dest_real = os.path.realpath(dest)
@@ -219,7 +197,7 @@ class Job:
         _fsync_dir(dest_dir)
         self.out = None
         self.discard()
-        return timestamps.apply(dest_real, when)
+        return timestamps.apply(dest_real)
 
     def discard(self) -> None:
         if self.workdir:

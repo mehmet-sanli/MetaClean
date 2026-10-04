@@ -2,3 +2,4 @@ PySide6>=6.5
 Pillow>=11.2
 mutagen>=1.45
 pillow-heif>=0.18
+pyobjc-framework-Cocoa>=10; sys_platform == "darwin"  # macOS galerilerinden sürükle-bırak

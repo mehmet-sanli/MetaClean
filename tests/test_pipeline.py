@@ -42,7 +42,8 @@ class PipelineTests(unittest.TestCase):
         return dst
 
     def leftovers(self):
-        return [n for n in os.listdir(self.dir) if n.startswith(".metaclean-")]
+        """Kullanıcının klasörüne geçici bir şey yazılmamalı (çalışma klasörü sistemin geçici klasöründe)."""
+        return [n for n in os.listdir(self.dir) if "metaclean-" in n]
 
     # ---------------------------------------------------------------- olumlu
     def test_all_formats_pass_all_gates(self):
@@ -57,34 +58,27 @@ class PipelineTests(unittest.TestCase):
                 job.discard()
         self.assertEqual(self.leftovers(), [])
 
-    def test_save_replace_atomic_and_timestamps(self):
+    def test_save_copy_clean_with_fresh_timestamps(self):
         path = self.copy("foto.jpg")
-        os.chmod(path, 0o640)
         os.utime(path, (1_000_000_000, 1_000_000_000))  # 2001
+        sig = signature(path)
         job = Job(path)
         self.assertTrue(job.prepare().ok)
+        self.assertEqual(self.leftovers(), [], "onaydan önce kullanıcının klasörüne yazılmamalı")
         before = time.time()
-        notes = job.save_replace()
-        st = os.stat(path)
-        self.assertGreaterEqual(st.st_mtime, before - 2)
-        if os.name != "nt":  # Windows'ta chmod yalnızca salt-okunur bayrağını değiştirir
-            self.assertEqual(st.st_mode & 0o777, 0o640, "izinler korunmalı")
+        dest = os.path.join(self.dir, "kopya.jpg")
+        notes = job.save_copy(dest)
+        st = os.stat(dest)
+        self.assertGreaterEqual(st.st_mtime, before - 2, "orijinalin 2001 tarihi kopyaya taşınmamalı")
         self.assertFalse(any(n.startswith("✗") for n in notes), notes)
         if hasattr(st, "st_birthtime"):
             self.assertGreaterEqual(st.st_birthtime, before - 2)
-        with open(path, "rb") as f:
+        with open(dest, "rb") as f:
             data = f.read()
         self.assertNotIn(b"gizli yorum", data)
         self.assertNotIn(b"ftypmp42", data)
+        self.assertEqual(signature(path), sig, "orijinal değişmemeli")
         self.assertEqual(self.leftovers(), [])
-
-    def test_fixed_timestamp(self):
-        path = self.copy("ses.flac")
-        job = Job(path)
-        self.assertTrue(job.prepare().ok)
-        when = 1_767_225_600  # 2026-01-01
-        job.save_replace(when)
-        self.assertAlmostEqual(os.stat(path).st_mtime, when, delta=2)
 
     def test_save_copy_leaves_original_untouched(self):
         path = self.copy("ekran.png")
@@ -109,22 +103,15 @@ class PipelineTests(unittest.TestCase):
         real = self.copy("foto.jpg")
         link = os.path.join(self.dir, "bag.jpg")
         os.symlink(real, link)
+        sig = signature(real)
         job = Job(link)
         self.assertTrue(job.prepare().ok)
-        job.save_replace()
+        dest = os.path.join(self.dir, "kopya.jpg")
+        job.save_copy(dest)
         self.assertTrue(os.path.islink(link), "bağın kendisi değiştirilmemeli")
-        with open(real, "rb") as f:
+        self.assertEqual(signature(real), sig, "bağın gösterdiği orijinal değişmemeli")
+        with open(dest, "rb") as f:
             self.assertNotIn(b"gizli yorum", f.read())
-
-    def test_original_changed_before_save(self):
-        path = self.copy("foto.jpg")
-        job = Job(path)
-        self.assertTrue(job.prepare().ok)
-        with open(path, "ab") as f:
-            f.write(b"x")
-        with self.assertRaises(RuntimeError):
-            job.save_replace()
-        self.assertEqual(self.leftovers(), [])
 
     def test_unsupported_rejected(self):
         path = os.path.join(self.dir, "metin.jpg")  # uzantı yalan söylüyor

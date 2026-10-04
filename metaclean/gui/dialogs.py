@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import sys
 
-from PySide6.QtCore import QDateTime, QSettings
-from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QDateTimeEdit, QDialog, QDialogButtonBox, QFileDialog,
-                               QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QRadioButton,
-                               QSpinBox, QTextBrowser, QVBoxLayout)
+from PySide6.QtCore import QSettings
+from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QGroupBox,
+                               QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox, QTextBrowser, QVBoxLayout)
 
 from .. import __version__
 from ..core import tools
+from ..core.handlers.base import Options
 
 INSTALL_HINTS = {
     "darwin": "brew install exiftool ffmpeg",
@@ -20,6 +20,14 @@ INSTALL_HINTS = {
 
 def settings() -> QSettings:
     return QSettings("MetaClean", "MetaClean")
+
+
+def saved_options() -> Options:
+    return Options(full_video_decode=settings().value("verify/full", False, bool))
+
+
+def saved_parallel() -> int:
+    return settings().value("jobs/parallel", 2, int)
 
 
 def about_html() -> str:
@@ -46,31 +54,6 @@ class SettingsDialog(QDialog):
         s = settings()
         lay = QVBoxLayout(self)
 
-        ts = QGroupBox("Kaydettikten sonra zaman damgaları")
-        tl = QVBoxLayout(ts)
-        self.now = QRadioButton("Kaydetme anı (önerilen; her platformda sağlanabilen tek seçenek)")
-        self.fixed = QRadioButton("Sabit tarih:")
-        grp = QButtonGroup(self)
-        grp.addButton(self.now)
-        grp.addButton(self.fixed)
-        self.when = QDateTimeEdit(QDateTime.fromSecsSinceEpoch(int(s.value("ts/fixed", 1767225600, int))))
-        self.when.setCalendarPopup(True)
-        self.when.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
-        row = QHBoxLayout()
-        row.addWidget(self.fixed)
-        row.addWidget(self.when, 1)
-        tl.addWidget(self.now)
-        tl.addLayout(row)
-        note = QLabel("Değiştirilme, erişim ve oluşturulma zamanı seçilen ana çekilir ve geri okunarak doğrulanır. "
-                      "Kaydetme anı, temizliğin ne zaman yapıldığını ele verir. Linux'ta oluşturulma zamanı "
-                      "ayarlanamaz; sabit tarih orada yalnızca değiştirilme ve erişim zamanına uygulanır.")
-        note.setWordWrap(True)
-        note.setStyleSheet("color: palette(placeholder-text);")
-        tl.addWidget(note)
-        (self.fixed if s.value("ts/mode", "now") == "fixed" else self.now).setChecked(True)
-        self.when.setEnabled(self.fixed.isChecked())
-        self.fixed.toggled.connect(self.when.setEnabled)
-        lay.addWidget(ts)
 
         vg = QGroupBox("Doğrulama")
         vl = QVBoxLayout(vg)
@@ -121,8 +104,6 @@ class SettingsDialog(QDialog):
 
     def _save(self) -> None:
         s = settings()
-        s.setValue("ts/mode", "fixed" if self.fixed.isChecked() else "now")
-        s.setValue("ts/fixed", self.when.dateTime().toSecsSinceEpoch())
         s.setValue("verify/full", self.full.isChecked())
         s.setValue("jobs/parallel", self.parallel.value())
         for t, e in self.paths.items():
@@ -167,12 +148,12 @@ FLAC kanal maskesi, ASS altyazı yazı tipleri). Listede olmayan her şey silini
 <p>Biri bile geçilmezse geçici dosya silinir ve kaydetme seçeneği sunulmaz.</p>
 <h3>Programın çözemedikleri</h3>
 <ul>
-<li>Üzerine yazılan eski dosyanın blokları diskte bir süre kurtarılabilir kalır. SSD'de güvenli silme garanti edilemez.</li>
+<li>Orijinal dosyaya hiç dokunulmaz; temiz sürüm her zaman ayrı bir kopyadır. Orijinali paylaşmayın ya da
+kendiniz silin.</li>
 <li>Bulut eşitleme sürüm geçmişi (iCloud, Google Drive, OneDrive, Dropbox), yedekler (Time Machine, Dosya Geçmişi)
 ve küçük resim önbellekleri programın erişemediği kopyalardır.</li>
 <li>HEIC içindeki küçük resim ve derinlik haritası öğeleri meta veri değil görüntü öğesidir; ExifTool silemez.
 Bunlar varsa uyarı gösterilir.</li>
-<li>Sabit bağlı (hard link) dosyada 'Kaydet' yalnızca seçilen adı değiştirir.</li>
 <li>Görüntünün içeriği (yüzler, tabelalar, ekran yansımaları) meta veri değildir.</li>
 <li>RAW dosyaları (CR2, NEF, ARW…) kapsam dışıdır; üretici notları görüntünün doğru açılması için gerekebilir.</li>
 </ul>
