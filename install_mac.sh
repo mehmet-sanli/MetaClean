@@ -20,9 +20,22 @@ cp -R "$SRC/metaclean" "$SRC/requirements.txt" "$DEST/"
 find "$DEST/metaclean" -name __pycache__ -prune -exec rm -rf {} +
 
 echo "2/4 Python ortamı hazırlanıyor"
-if [ ! -x "$DEST/.venv/bin/python" ]; then
-  python3 -m venv --system-site-packages "$DEST/.venv"
+# macOS'un kendi python3'ü eski (3.9, desteği bitti): varsa Homebrew'un yeni Python'u kullanılır
+PY=python3
+for v in 3.13 3.12 3.11 3.10; do
+  for c in "python$v" "/opt/homebrew/bin/python$v" "/usr/local/bin/python$v"; do
+    if command -v "$c" >/dev/null 2>&1; then PY="$c"; break 2; fi
+  done
+done
+want="$("$PY" -c 'import sys; print(sys.version_info[:2])')"
+if [ -x "$DEST/.venv/bin/python" ] && [ "$("$DEST/.venv/bin/python" -c 'import sys; print(sys.version_info[:2])')" != "$want" ]; then
+  rm -rf "$DEST/.venv"  # eski Python'la kurulmuş ortam yenilenir
 fi
+if [ ! -x "$DEST/.venv/bin/python" ]; then
+  "$PY" -m venv --system-site-packages "$DEST/.venv"
+fi
+# Eski pip, geri çekilmiş (yanked) paket sürümlerini seçebiliyor; önce pip güncellenir
+"$DEST/.venv/bin/python" -m pip install -q --disable-pip-version-check --upgrade pip
 "$DEST/.venv/bin/pip" install -q --disable-pip-version-check -r "$DEST/requirements.txt"
 
 echo "3/4 Uygulama oluşturuluyor → $APP"

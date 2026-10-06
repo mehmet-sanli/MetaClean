@@ -101,6 +101,36 @@ class CategoryTests(unittest.TestCase):
         self.assertEqual(out["Açıklama ve etiketler"], "")
 
 
+class FetchToolsTests(unittest.TestCase):
+    """Pakete giren ExifTool/FFmpeg sabit sürümdür ve parmak izi doğrulanır."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packaging"))
+        import fetch_tools
+        self.ft = fetch_tools
+
+    def test_tampered_download_stops_build(self):
+        import io
+        with mock.patch.object(self.ft.urllib.request, "urlopen", return_value=io.BytesIO(b"degistirilmis")):
+            with self.assertRaisesRegex(SystemExit, "SHA-256 tutmadı"):
+                self.ft.get(self.ft.FFMPEG_WIN)
+
+    def test_matching_download_accepted(self):
+        import hashlib
+        import io
+        data = b"dogru icerik"
+        source = ("https://ornek/arac.zip", hashlib.sha256(data).hexdigest())
+        with mock.patch.object(self.ft.urllib.request, "urlopen", return_value=io.BytesIO(data)):
+            self.assertEqual(self.ft.get(source), data)
+
+    def test_every_tool_pinned(self):
+        sources = [self.ft.EXIFTOOL_UNIX, self.ft.EXIFTOOL_WIN, self.ft.FFMPEG_WIN, self.ft.FFMPEG_LINUX,
+                   *self.ft.FFMPEG_MAC.values()]
+        for url, digest in sources:
+            self.assertRegex(digest, r"^[0-9a-f]{64}$", url)
+            self.assertNotIn("latest", url, "'en son' adresi sabit değildir")
+
+
 class GalleryDropTests(unittest.TestCase):
     def test_when_promises_are_used(self):
         from metaclean.gui.macdrop import use_promises

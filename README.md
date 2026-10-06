@@ -77,7 +77,7 @@ orijinalden taşınmaz; kaydetme anı yazılır (Linux'ta oluşturulma tarihi de
 
 ```
 pip install pyinstaller
-python packaging/fetch_tools.py          # ExifTool ve FFmpeg'i packaging/bin/ içine indirir
+python packaging/fetch_tools.py          # sabit sürüm ExifTool ve FFmpeg'i SHA-256 doğrulayarak packaging/bin/ içine indirir
 pyinstaller --noconfirm packaging/metaclean.spec
 dist/MetaClean/MetaClean --selftest      # macOS: dist/MetaClean.app/Contents/MacOS/MetaClean
 ```
