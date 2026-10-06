@@ -214,6 +214,7 @@ class StabilityTests(unittest.TestCase):
             notes = timestamps.apply(path)
         self.assertTrue(any(n.startswith("✗") for n in notes), notes)
 
+    @unittest.skipIf(os.name == "nt", "Windows'ta Unix izin bitleri yok; chmod yalnızca salt-okunur bayrağıdır")
     def test_tool_finder_does_not_chmod_user_files(self):
         from metaclean.core import tools
         path = os.path.join(self.tmp, "exiftool-sahte")
