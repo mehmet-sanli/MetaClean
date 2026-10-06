@@ -552,9 +552,9 @@ class SimpleWindow(QMainWindow):
         self.setMinimumSize(560, 520)
         self.setAcceptDrops(True)
         self.setStyleSheet(STYLE)
-        dialogs.apply_tool_overrides()
         self.pool = QThreadPool(self)
-        self.pool.setMaxThreadCount(dialogs.saved_parallel())
+        # Aynı anda işlenecek dosya: çekirdeklerin yarısı, 2-4 arası (büyük videolar belleği zorlamasın)
+        self.pool.setMaxThreadCount(max(2, min(4, (os.cpu_count() or 2) // 2)))
         self.signals = _Signals()
         self.signals.stage.connect(lambda cid, t: self.cards[cid].set_stage(t) if cid in self.cards else None)
         self.signals.thumb.connect(lambda cid, png: self.cards[cid].show_image(QImage.fromData(png))
@@ -815,7 +815,7 @@ class SimpleWindow(QMainWindow):
 
     def _add(self, path: str, from_gallery: bool = False) -> None:
         cid = next(self._ids)
-        job = Job(path, dialogs.saved_options())
+        job = Job(path)
         card = ResultCard(self, cid, job, from_gallery)
         self.cards[cid] = card
         self.cards_lay.insertWidget(0, card)
@@ -928,10 +928,8 @@ class SimpleWindow(QMainWindow):
 
     def open_settings(self) -> None:
         dlg = dialogs.SettingsDialog(self)
-        if dlg.exec():
-            self.pool.setMaxThreadCount(dialogs.saved_parallel())
-            if dlg.language_changed:
-                self.switch_language()
+        if dlg.exec() and dlg.language_changed:
+            self.switch_language()
 
     def switch_language(self) -> None:
         """Yeni dili hemen uygular: pencere yeni dille yeniden kurulur. Kaydedilmemiş dosya varsa kapanırken

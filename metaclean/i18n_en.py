@@ -284,16 +284,7 @@ EN = {
     # ------------------------------------------------------------------ Ayarlar ve bilgi pencereleri
     "Ayarlar": "Settings",
     "Otomatik (sistem dili)": "Automatic (system language)",
-    "Doğrulama": "Verification",
-    "Tam doğrulama: videoyu kare kare çöz ve karşılaştır (yavaş)": "Full verification: decode and compare video frame by frame (slow)",
-    "Kapalıyken video, sıkıştırılmış paketlerin özeti ve zamanlamasıyla karşılaştırılır. Bu da bit düzeyinde eşitliği gösterir. Görsel ve ses dosyaları her zaman tam çözülür.":
-        "When off, video is compared by the checksums and timing of its compressed packets, which also proves "
-        "bit-for-bit equality. Images and audio are always fully decoded.",
-    "Aynı anda işlenecek dosya:": "Files processed at the same time:",
-    "Araç yolları (boş: otomatik bul)": "Tool paths (empty: find automatically)",
     "bulunamadı": "not found",
-    "Seç…": "Choose…",
-    "{name} konumu": "Location of {name}",
     "Harici araçlar": "External tools",
     "Kurulum": "Install",
     "Python kütüphaneleri": "Python libraries",
@@ -339,7 +330,7 @@ You'll see a warning if they exist.</li>
 """,
 
     # ------------------------------------------------------------------ çekirdek: hatalar ve ilerleme
-    "{name} bulunamadı. Kurun ya da Ayarlar'dan yolunu gösterin.": "{name} not found. Install it or set its path in Settings.",
+    "{name} bulunamadı. Nasıl kurulacağı Diğer → Araçlar penceresinde yazıyor.": "{name} not found. See More → Tools for how to install it.",
     "Dosya adında satır sonu karakteri var; güvenlik gereği işlenmedi.":
         "The file name contains a line break; for security it was not processed.",
     "ExifTool taraması başarısız: {err}": "ExifTool scan failed: {err}",
@@ -542,8 +533,6 @@ You'll see a warning if they exist.</li>
     "Bütünlük: temiz dosya baştan sona çözülüyor": "Integrity: decoding the clean file from start to end",
     "Çözme hatası: {err}": "Decoding error: {err}",
     "Tüm kareler/örnekler hatasız çözüldü (ffmpeg -xerror).": "All frames/samples decoded without errors (ffmpeg -xerror).",
-    "Hızlı kip: kapsayıcı ve paketler doğrulandı; kare kare çözme için Ayarlar'dan 'Tam doğrulama'yı açın.":
-        "Fast mode: container and packets verified; for frame-by-frame decoding turn on 'Full verification' in Settings.",
     "Eşdeğerlik: sıkıştırılmış paketler karşılaştırılıyor": "Equivalence: comparing compressed packets",
     "Orijinal okunamadı: {err}": "The original couldn't be read: {err}",
     "{tracks} iz, {packets} paket: veri (MD5) ve zamanlama karşılaştırıldı.":

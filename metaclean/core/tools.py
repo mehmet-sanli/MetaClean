@@ -14,7 +14,6 @@ from ..i18n import tr
 
 TOOLS = ("exiftool", "ffmpeg", "ffprobe")
 
-_overrides: Dict[str, str] = {}
 
 
 class ToolError(RuntimeError):
@@ -29,13 +28,6 @@ class Cancelled(RuntimeError):
     pass
 
 
-def set_override(name: str, path: Optional[str]) -> None:
-    if path:
-        _overrides[name] = path
-    else:
-        _overrides.pop(name, None)
-
-
 def _bundled_bases() -> List[str]:
     """PyInstaller paketi ya da uygulamanın yanındaki bin/ klasörünün üstü."""
     return [b for b in (getattr(sys, "_MEIPASS", None), os.path.dirname(os.path.abspath(sys.argv[0]))) if b]
@@ -43,8 +35,6 @@ def _bundled_bases() -> List[str]:
 
 def _candidates(name: str):
     exe = name + (".exe" if os.name == "nt" else "")
-    if name in _overrides:
-        yield _overrides[name]
     for base in _bundled_bases():
         yield os.path.join(base, "bin", exe)
         if name == "exiftool":
@@ -96,7 +86,7 @@ def command(name: str) -> List[str]:
 def require(name: str) -> str:
     path = find_tool(name)
     if not path:
-        raise ToolMissing(tr("{name} bulunamadı. Kurun ya da Ayarlar'dan yolunu gösterin.", name=name))
+        raise ToolMissing(tr("{name} bulunamadı. Nasıl kurulacağı Diğer → Araçlar penceresinde yazıyor.", name=name))
     return path
 
 

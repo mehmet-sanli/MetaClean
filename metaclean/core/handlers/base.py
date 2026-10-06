@@ -10,17 +10,11 @@ from ..report import Gate, Kept, Report
 
 
 @dataclass
-class Options:
-    full_video_decode: bool = False   # videoda kare kare çözerek karşılaştır
-
-
-@dataclass
 class Context:
     src: str
     workdir: str
     fmt: str
     report: Report
-    options: Options = field(default_factory=Options)
     cancel: threading.Event = field(default_factory=threading.Event)
     progress: Callable[[str], None] = lambda s: None
 
