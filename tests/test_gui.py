@@ -249,17 +249,6 @@ class SimpleWindowTests(unittest.TestCase):
         self.assertEqual(card.name.text(), "<u>alti-cizili<u>.jpg")
         self.wait()
 
-    def test_parallel_setting_respected(self):
-        # Gerileme: ana pencere Ayarlar'daki "aynı anda işlenecek dosya" sayısını yok sayıyordu
-        from PySide6.QtCore import QSettings
-        from metaclean.gui import dialogs
-        store = QSettings(os.path.join(self.tmp, "ayar.ini"), QSettings.IniFormat)
-        store.setValue("jobs/parallel", 5)
-        with mock.patch.object(dialogs, "settings", lambda: store):
-            win = self.sw.SimpleWindow()
-        self.assertEqual(win.pool.maxThreadCount(), 5)
-        win.close()
-
     def test_english_interface(self):
         from metaclean import i18n
         i18n.set_language("en")

@@ -4,13 +4,10 @@ from __future__ import annotations
 import sys
 
 from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QGroupBox,
-                               QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox, QTextBrowser,
-                               QVBoxLayout)
+from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QGroupBox, QHBoxLayout, QTextBrowser, QVBoxLayout)
 
 from .. import __version__
 from ..core import tools
-from ..core.handlers.base import Options
 from ..i18n import tr
 
 INSTALL_HINTS = {
@@ -22,14 +19,6 @@ INSTALL_HINTS = {
 
 def settings() -> QSettings:
     return QSettings("MetaClean", "MetaClean")
-
-
-def saved_options() -> Options:
-    return Options(full_video_decode=settings().value("verify/full", False, bool))
-
-
-def saved_parallel() -> int:
-    return settings().value("jobs/parallel", 2, int)
 
 
 def saved_language() -> str:
@@ -47,21 +36,15 @@ def about_html() -> str:
                  "pillow-heif. Lisans bildirimleri: <code>THIRD_PARTY_NOTICES.md</code></p>", folder=log_dir()))
 
 
-def apply_tool_overrides() -> None:
-    s = settings()
-    for t in tools.TOOLS:
-        tools.set_override(t, s.value(f"tools/{t}", "", str) or None)
-
-
 class SettingsDialog(QDialog):
+    """Yalnızca dil: doğrulama ve eşzamanlılık otomatik, araçlar pakette gelir ya da kendiliğinden bulunur."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle(tr("Ayarlar"))
         self.language_changed = False
-        self.setMinimumWidth(560)
-        s = settings()
+        self.setMinimumWidth(420)
         lay = QVBoxLayout(self)
-
         lg = QGroupBox("Dil / Language")  # iki dilde: yanlış dilde kalan da bulabilsin
         ll = QHBoxLayout(lg)
         self.lang = QComboBox()
@@ -70,65 +53,16 @@ class SettingsDialog(QDialog):
         self.lang.setCurrentIndex(max(0, self.lang.findData(saved_language())))
         ll.addWidget(self.lang, 1)
         lay.addWidget(lg)
-
-        vg = QGroupBox(tr("Doğrulama"))
-        vl = QVBoxLayout(vg)
-        self.full = QCheckBox(tr("Tam doğrulama: videoyu kare kare çöz ve karşılaştır (yavaş)"))
-        self.full.setChecked(s.value("verify/full", False, bool))
-        vl.addWidget(self.full)
-        n = QLabel(tr("Kapalıyken video, sıkıştırılmış paketlerin özeti ve zamanlamasıyla karşılaştırılır. Bu da "
-                      "bit düzeyinde eşitliği gösterir. Görsel ve ses dosyaları her zaman tam çözülür."))
-        n.setWordWrap(True)
-        n.setStyleSheet("color: palette(placeholder-text);")
-        vl.addWidget(n)
-        par = QHBoxLayout()
-        par.addWidget(QLabel(tr("Aynı anda işlenecek dosya:")))
-        self.parallel = QSpinBox()
-        self.parallel.setRange(1, 8)
-        self.parallel.setValue(s.value("jobs/parallel", 2, int))
-        par.addWidget(self.parallel)
-        par.addStretch(1)
-        vl.addLayout(par)
-        lay.addWidget(vg)
-
-        tg = QGroupBox(tr("Araç yolları (boş: otomatik bul)"))
-        form = QFormLayout(tg)
-        self.paths = {}
-        for t in tools.TOOLS:
-            edit = QLineEdit(s.value(f"tools/{t}", "", str))
-            tools.set_override(t, None)
-            edit.setPlaceholderText(tools.find_tool(t) or tr("bulunamadı"))
-            apply_tool_overrides()
-            btn = QPushButton(tr("Seç…"))
-            btn.clicked.connect(lambda _=False, e=edit, name=t: self._browse(e, name))
-            row = QHBoxLayout()
-            row.addWidget(edit, 1)
-            row.addWidget(btn)
-            form.addRow(t, row)
-            self.paths[t] = edit
-        lay.addWidget(tg)
-
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self._save)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
 
-    def _browse(self, edit: QLineEdit, name: str) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, tr("{name} konumu", name=name))
-        if path:
-            edit.setText(path)
-
     def _save(self) -> None:
-        s = settings()
         lang = self.lang.currentData()
         self.language_changed = lang != saved_language()  # pencere yeni dille hemen yeniden kurulur
         if self.language_changed:
-            s.setValue("ui/lang", lang)
-        s.setValue("verify/full", self.full.isChecked())
-        s.setValue("jobs/parallel", self.parallel.value())
-        for t, e in self.paths.items():
-            s.setValue(f"tools/{t}", e.text().strip())
-        apply_tool_overrides()
+            settings().setValue("ui/lang", lang)
         self.accept()
 
 

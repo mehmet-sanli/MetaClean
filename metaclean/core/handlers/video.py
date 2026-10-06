@@ -117,7 +117,9 @@ class AvHandler(Handler):
         av_src = [a for i, s in zip(self.kept_index, pa) if s["codec_type"] in ("video", "audio")
                   for a in ("-map", f"0:{i}")]
         has_video = any(s["codec_type"] == "video" for s in av)
-        decode = ctx.options.full_video_decode or not has_video
+        # Videoda sıkıştırılmış paketlerin özeti bit düzeyinde eşitliği kanıtlar (yeniden kodlanmıyor);
+        # yalnızca sesli dosyalar ayrıca baştan sona çözülür
+        decode = not has_video
 
         ctx.progress(tr("Bütünlük: temiz dosyanın paketleri okunuyor"))
         table_b, err = ffverify.packet_table(out, ["-map", "0"], ctx=ctx)
@@ -134,9 +136,6 @@ class AvHandler(Handler):
                 return (Gate(tr("Bütünlük"), False, [tr("Çözme hatası: {err}", err=err)]),
                         Gate(tr("Eşdeğerlik"), False, [tr("Bütünlük geçilmediği için denenmedi.")]))
             integrity_details.append(tr("Tüm kareler/örnekler hatasız çözüldü (ffmpeg -xerror)."))
-        else:
-            integrity_details.append(tr("Hızlı kip: kapsayıcı ve paketler doğrulandı; kare kare çözme için "
-                                        "Ayarlar'dan 'Tam doğrulama'yı açın."))
         integrity = Gate(tr("Bütünlük"), True, integrity_details)
 
         ctx.progress(tr("Eşdeğerlik: sıkıştırılmış paketler karşılaştırılıyor"))

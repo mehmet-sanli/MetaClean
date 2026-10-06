@@ -14,7 +14,7 @@ from typing import Callable, Dict, List, Optional, Set, Tuple
 from ..i18n import tr
 from . import allowlist, detect, fsops, timestamps, tools
 from .handlers.audio import FlacHandler, Mp3Handler
-from .handlers.base import Context, Handler, Options
+from .handlers.base import Context, Handler
 from .handlers.images import HeifHandler, JpegHandler, PngHandler, WebpHandler
 from .handlers.video import AvHandler
 from .report import Gate, Report
@@ -111,10 +111,9 @@ def neutral_name(folder: str, fmt: str) -> str:
 
 
 class Job:
-    def __init__(self, path: str, options: Optional[Options] = None):
+    def __init__(self, path: str):
         self.path = path
         self.real = os.path.realpath(path)
-        self.options = options or Options()
         self.report = Report(path=path)
         self.cancel = threading.Event()
         self.workdir: Optional[str] = None
@@ -161,7 +160,7 @@ class Job:
                     raise tools.Cancelled()
                 progress(text)
 
-            ctx = Context(self.real, self.workdir, fmt, r, self.options, self.cancel, step)
+            ctx = Context(self.real, self.workdir, fmt, r, self.cancel, step)
 
             step(tr("Meta veri taranıyor (ExifTool)"))
             r.scan = scan or tools.exiftool_scan(self.real, log=r.log, cancel=self.cancel)

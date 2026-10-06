@@ -236,11 +236,8 @@ class StabilityTests(unittest.TestCase):
         with open(path, "w") as f:
             f.write("calistirilamaz")
         os.chmod(path, 0o644)
-        tools.set_override("exiftool", path)
-        try:
-            tools.find_tool("exiftool")
-        finally:
-            tools.set_override("exiftool", None)
+        with mock.patch.object(tools, "_candidates", lambda name: iter([path])):  # PATH'teki bir dosya gibi
+            self.assertIsNone(tools.find_tool("exiftool"), "çalıştırılamaz dosya araç sayılmamalı")
         self.assertEqual(os.stat(path).st_mode & 0o777, 0o644, "kullanıcının dosyasının iznine dokunulmamalı")
 
     def test_frame_parameter_translated(self):
