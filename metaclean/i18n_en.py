@@ -113,6 +113,9 @@ EN = {
     "Dosyanın içindeki bilgiler okunuyor…": "Reading the information inside the file…",
     "Bu dosyanın meta verisi okunamadı.": "This file's metadata couldn't be read.",
     "Bu dosyada kişisel bilgi bulunmadı.": "No personal information was found in this file.",
+    "Bu dosya temizlenemedi. Panelde yalnızca okunabilen bilgiler var; okunamayan bölümler kişisel bilgi taşıyor olabilir.":
+        "This file couldn't be cleaned. The panel only shows the information that could be read; parts that "
+        "couldn't be read may contain personal information.",
     "Orijinalde {n} bilgi vardı; kaydedilen temiz kopyada hepsi silindi.":
         "The original had {n} items; all of them were removed in the saved clean copy.",
     "{n} bilgi bulundu. Temiz kopya hazır ve doğrulandı; “Kaydet”e basınca bu bilgiler olmadan kaydedilir.":

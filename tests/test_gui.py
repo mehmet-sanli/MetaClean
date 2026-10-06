@@ -384,6 +384,8 @@ class SimpleWindowTests(unittest.TestCase):
         card = next(iter(self.win.cards.values()))
         self.assertIsNone(card.dest)
         self.assertIn("desteklenmiyor", card.status.text())
+        self.win.show_meta(card)
+        self.assertNotIn("bulunmadı", self.win.meta.subtitle.text(), "temizlenemeyen dosyada yanlış güvence verilmemeli")
         self.assertFalse(os.path.exists(self.out) and os.listdir(self.out))
 
     def test_photos_library_refused_with_explanation(self):
