@@ -113,6 +113,9 @@ EN = {
     "Dosyanın içindeki bilgiler okunuyor…": "Reading the information inside the file…",
     "Bu dosyanın meta verisi okunamadı.": "This file's metadata couldn't be read.",
     "Bu dosyada kişisel bilgi bulunmadı.": "No personal information was found in this file.",
+    "Bu dosya temizlenemedi. Panelde yalnızca okunabilen bilgiler var; okunamayan bölümler kişisel bilgi taşıyor olabilir.":
+        "This file couldn't be cleaned. The panel only shows the information that could be read; parts that "
+        "couldn't be read may contain personal information.",
     "Orijinalde {n} bilgi vardı; kaydedilen temiz kopyada hepsi silindi.":
         "The original had {n} items; all of them were removed in the saved clean copy.",
     "{n} bilgi bulundu. Temiz kopya hazır ve doğrulandı; “Kaydet”e basınca bu bilgiler olmadan kaydedilir.":
@@ -488,6 +491,15 @@ You'll see a warning if they exist.</li>
     "ICC renk profili (ICCP)": "ICC colour profile (ICCP)",
     "RIFF sonrası {n} bayt veri kaldı": "{n} bytes of data remained after RIFF",
     "EXIF, XMP, IPTC ve üretici notları (ExifTool -all=)": "EXIF, XMP, IPTC and maker notes (ExifTool -all=)",
+    "HEIF kutusu kesik": "HEIF box is truncated",
+    "HEIF kutusu dosya sonunu aşıyor": "HEIF box runs past the end of the file",
+    "Desteklenmeyen HEIF öğe kaydı": "Unsupported HEIF item entry",
+    "İzin listesi dışı HEIF kutusu: {box}": "HEIF box not on the allowlist: {box}",
+    "İzin listesi dışı HEIF özelliği: {prop}": "HEIF property not on the allowlist: {prop}",
+    "HEIF yapısı çözülemedi: {e}": "HEIF structure couldn't be parsed: {e}",
+    "İzin listesi dışı HEIF öğesi: {kind} (öğe {id})": "HEIF item not on the allowlist: {kind} (item {id})",
+    "Türü bilinmeyen HEIF öğesine ait veri (öğe {id})": "Data belonging to a HEIF item of unknown type (item {id})",
+    "Hiçbir öğeye ait olmayan {n} bayt veri kaldı": "{n} bytes of data not belonging to any item remained",
     "ICC renk profili / colr": "ICC colour profile / colr",
     "EXIF Orientation ile irot/imir özellikleri": "EXIF Orientation and irot/imir properties",
     "Doğru yönde görünmesi için": "So it shows the right way up",

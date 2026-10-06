@@ -845,11 +845,13 @@ class SimpleWindow(QMainWindow):
         if card:
             r = card.job.report
             log.info("hazır: %s hata=%s rapor=%s", card.job.path, error, r.error)
-            for g in r.gates:
-                if not g.passed:
-                    log.info("  başarısız kapı %s: %s", g.name, g.details)
+            # Kayda kontrol ayrıntıları yazılmaz: "Kalan alan: GPS:GPSLatitude = 41 deg…" gibi satırlar
+            # konum ve isim değerleri taşır. Yalnızca kapı adları ve kalan alanların adları yazılır.
+            failed = [source(g.name) for g in r.gates if not g.passed]
+            if failed:
+                log.info("  başarısız kapılar: %s, kalan alan adları: %s", failed, [f.key for f in r.remaining])
             if r.warnings:
-                log.info("  uyarılar: %s", r.warnings)
+                log.info("  uyarılar: %s", [source(w) for w in r.warnings])
             card.finish(error)
             self.card_changed(card)
             if card.from_gallery:

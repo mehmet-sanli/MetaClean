@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple
 
 from ...i18n import tr
 from .. import tiffmin, tools
+from .. import heifcheck
 from . import gainmap
 from ..report import Gate
 from .base import Context, Handler
@@ -564,6 +565,10 @@ class HeifHandler(PillowVerifyMixin, Handler):
 
     def __init__(self, ext: str):
         self.ext = ext
+
+    def structural(self, ctx: Context, out: str) -> Optional[List[str]]:
+        # ExifTool tanımadığı öğeyi silmez ve yeniden taramada göstermez; yapı ayrıca denetlenir
+        return heifcheck.problems(out)
 
     def clean(self, ctx: Context) -> str:
         out = ctx.out_path(self.ext)

@@ -8,6 +8,7 @@ import os
 import shutil
 import tempfile
 import threading
+import time
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from ..i18n import tr
@@ -19,6 +20,27 @@ from .handlers.video import AvHandler
 from .report import Gate, Report
 
 _LIVE_WORKDIRS: Set[str] = set()
+
+
+def cleanup_stale_workdirs(max_age: float = 24 * 3600) -> int:
+    """Önceki bir çökmeden kalan geçici klasörleri siler; normalde kapanışta silinirler ama çökmede bu kod
+    çalışmaz. Galeriden alınan kopyalar konum gibi bilgiler taşıyabilir. Yalnızca bu kullanıcının ve bir
+    günden eski klasörlere dokunulur: aynı anda açık başka bir MetaClean'in işi bozulmasın."""
+    root, now, removed = tempfile.gettempdir(), time.time(), 0
+    for name in os.listdir(root):
+        if not name.startswith("metaclean-"):
+            continue
+        path = os.path.join(root, name)
+        try:
+            st = os.lstat(path)
+            if (not os.path.isdir(path) or os.path.islink(path) or now - st.st_mtime < max_age
+                    or (hasattr(os, "getuid") and st.st_uid != os.getuid())):
+                continue
+        except OSError:
+            continue
+        shutil.rmtree(path, ignore_errors=True)
+        removed += 1
+    return removed
 
 
 class Unsupported(ValueError):

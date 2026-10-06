@@ -55,6 +55,10 @@ class MetaPanel(QFrame):
         personal = sum(1 for _, _, rows in self.sections for row in rows if row[2] == categories.STATUS_REMOVED)
         if not scan:
             self.subtitle.setText(tr("Bu dosyanın meta verisi okunamadı."))
+        elif state == FAILED and personal == 0:
+            # Temizlenemeyen dosya için "kişisel bilgi yok" denmez: ExifTool'un okuyamadığı bölümler olabilir
+            self.subtitle.setText(tr("Bu dosya temizlenemedi. Panelde yalnızca okunabilen bilgiler var; okunamayan "
+                                     "bölümler kişisel bilgi taşıyor olabilir."))
         elif personal == 0:
             self.subtitle.setText(tr("Bu dosyada kişisel bilgi bulunmadı."))
         elif state == CLEANED:

@@ -21,6 +21,9 @@ açılan **Releases** sayfasından indirilir.
 | macOS (M1/M2/M3…) | `MetaClean-macOS-AppleSilicon.dmg` | Açın, `MetaClean`'i Uygulamalar'a sürükleyin |
 | Linux (x64) | `MetaClean-Linux-x64.tar.gz` | Açın, klasörde `./install_bundle.sh` çalıştırın |
 
+Her sürümde bir `SHA256SUMS.txt` vardır; indirdiğiniz paketin değiştirilmediğini şöyle doğrulayabilirsiniz
+(macOS/Linux: `shasum -a 256 -c SHA256SUMS.txt --ignore-missing`, Windows: `certutil -hashfile <dosya> SHA256`).
+
 Paketler imzasız olduğu için ilk açılışta uyarı çıkabilir:
 - **macOS:** Uygulamaya sağ tıklayın → **Aç** → **Aç**.
 - **Windows:** "Windows bilgisayarınızı korudu" ekranında **Ek bilgi** → **Yine de çalıştır**.

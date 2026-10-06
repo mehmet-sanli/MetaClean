@@ -151,6 +151,65 @@ class PipelineTests(unittest.TestCase):
         self.assertFalse(r.ok)
         self.assertEqual(self.leftovers(), [], "başarısızlıkta temp silinmeli")
 
+    def _heic(self, name, **save):
+        from PIL import Image
+        import pillow_heif
+        pillow_heif.register_heif_opener()
+        im = Image.new("RGB", (64, 48), (200, 80, 40))
+        ex = im.getexif()
+        ex[0x010F], ex[0x0110], ex[0xA431] = "Canon", "EOS Gizli", "SN-123456"
+        path = os.path.join(self.dir, name)
+        im.save(path, exif=ex.tobytes(), **save)
+        return path
+
+    def test_heif_unknown_item_type_refused(self):
+        # Gerileme: türü bozulmuş EXIF öğesi ("Exiv") ExifTool'a görünmüyordu; temiz denip seri no sızıyordu
+        path = self._heic("bozuk.heic")
+        with open(path, "rb") as f:
+            data = f.read()
+        i = data.find(b"Exif\x00", data.find(b"iinf"))
+        with open(path, "wb") as f:
+            f.write(data[:i] + b"Exiv" + data[i + 4:])
+        r = Job(path).prepare()
+        self.assertFalse(r.ok)
+        self.assertTrue(any("Exiv" in str(d) for g in r.gates for d in g.details))
+        self.assertEqual(self.leftovers(), [])
+
+    def test_heif_orphan_bytes_refused(self):
+        # Gerileme: mdat'ta hiçbir öğeye ait olmayan baytlar temiz kopyaya aynen taşınıyordu
+        import struct
+        path = self._heic("oksuz.heic")
+        with open(path, "rb") as f:
+            data = bytearray(f.read())
+        i = data.rfind(b"mdat") - 4
+        size = struct.unpack(">I", data[i:i + 4])[0]
+        self.assertEqual(i + size, len(data), "mdat son kutu olmalı")
+        secret = b"GIZLI KONUM 41.0,28.9 SN-999"
+        data[i:i + 4] = struct.pack(">I", size + len(secret))
+        with open(path, "wb") as f:
+            f.write(bytes(data) + secret)
+        r = Job(path).prepare()
+        self.assertFalse(r.ok, "gizli baytlar taşınmamalı")
+
+    def test_heif_with_xmp_and_thumbnail_still_cleaned(self):
+        # Yapısal denetim sağlam dosyaları reddetmemeli; ExifTool XMP öğesini boşaltır, kaydını bırakır
+        xmp = (b'<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+               b'<rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:creator>Ayse</dc:creator>'
+               b'</rdf:Description></rdf:RDF></x:xmpmeta>')
+        for name, extra in (("xmp.heic", {"xmp": xmp, "thumbnails": [32]}), ("saydam.heic", {})):
+            path = self._heic(name, **extra)
+            if name == "saydam.heic":
+                from PIL import Image
+                Image.open(path).convert("RGBA").save(path, exif=Image.open(path).getexif().tobytes())
+            job = Job(path)
+            r = job.prepare()
+            self.assertTrue(r.ok, (name, [(g.name, g.details) for g in r.gates if not g.passed]))
+            with open(job.out, "rb") as f:
+                data = f.read()
+            for secret in (b"Ayse", b"Canon", b"SN-123456"):
+                self.assertNotIn(secret, data, name)
+            job.discard()
+
     def test_cleanliness_gate_catches_leftover_comment(self):
         orig_clean = images.JpegHandler.clean
 
