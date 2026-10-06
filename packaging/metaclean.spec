@@ -40,6 +40,9 @@ if sys.platform == "darwin":
             "CFBundleShortVersionString": VERSION,
             "CFBundleVersion": VERSION,
             "NSHighResolutionCapable": True,
+            # Arayüz dilleri (metaclean/i18n.py); macOS'un kendi pencereleri de buna göre dil seçer
+            "CFBundleDevelopmentRegion": "tr",
+            "CFBundleLocalizations": ["tr", "en"],
             "NSDesktopFolderUsageDescription": "Temiz kopyaları masaüstündeki “Paylaşıma Hazır” klasörüne kaydetmek için.",
             "NSDocumentsFolderUsageDescription": "Seçtiğiniz dosyaları okumak için.",
             "NSDownloadsFolderUsageDescription": "Seçtiğiniz dosyaları okumak için.",

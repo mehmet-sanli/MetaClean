@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 from typing import Dict, List, Tuple
 
+from ..i18n import source, tr
 from . import allowlist
 from .report import Report
 
@@ -49,7 +50,7 @@ def categorize(group: str, name: str) -> str:
 
 
 def _removed_category(text: str) -> str:
-    t = text.lower()
+    t = source(text).lower()  # görünen dile değil Türkçe aslına bakılır
     # EXIF bloğunun genel açıklamasında da "küçük resim" geçer; yalnızca gerçekten silinen resimleri say
     if "kapak resmi" in t or "küçük resmi" in t:
         return "resim"
@@ -77,15 +78,15 @@ def summarize(report: Report) -> List[Tuple[str, str, str]]:
             value = f.value
             if cat == "konum" and gps:
                 value = str(gps)
-            if cat == "diger" or value.startswith("(Binary") or len(value) > 60 or not any(c.isalpha() for c in value):
+            value = pretty_value(value)  # panelle aynı biçim: "15 Ağustos 2026, 14:22", 41°0'29.50"…
+            if cat == "diger" or source(value) == "(gömülü veri)" or len(value) > 60 or not any(c.isalpha() for c in value):
                 value = ""  # yalnızca sayı ya da ikili veri: kullanıcıya bir şey anlatmaz
-            value = value.replace(" deg ", "°").replace("' ", "'")
             found[cat] = value
     for text in report.removed:
         cat = _removed_category(text)
         if cat and cat not in found:
             found[cat] = ""
-    return [(icon, title, found[key]) for key, icon, title in CATEGORIES if key in found]
+    return [(icon, tr(title), found[key]) for key, icon, title in CATEGORIES if key in found]
 
 
 # ---------------------------------------------------------------- okunur meta veri listesi
@@ -167,24 +168,24 @@ def coordinates(value: object) -> str:
 
 def label(name: str) -> str:
     if name in LABELS:
-        return LABELS[name]
+        return tr(LABELS[name])
     return re.sub(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ", name)
 
 
 def pretty_value(value: object) -> str:
     v = str(value).strip()
     if v.startswith("(Binary") or v.startswith("base64:"):
-        return "(gömülü veri)"
+        return tr("(gömülü veri)")
     tail = v.rsplit("/", 1)[-1]  # IPTC sözlük adresleri: .../digitalsourcetype/trainedAlgorithmicMedia
     if tail in VALUES:
-        return VALUES[tail]
+        return tr(VALUES[tail])
     if v in VALUES:
-        return VALUES[v]
+        return tr(VALUES[v])
     m = _DATE.match(v)
     if m and m.group(1) != "0000":
         y, mo, d, hh, mm = m.groups()
         try:
-            text = f"{int(d)} {_MONTHS[int(mo) - 1]} {y}"
+            text = f"{int(d)} {tr(_MONTHS[int(mo) - 1])} {y}"
         except (IndexError, ValueError):
             return v
         return text + (f", {hh}:{mm}" if hh else "")
@@ -219,13 +220,13 @@ def readable(scan: Dict[str, object]) -> List[Tuple[str, str, List[Tuple[str, st
             coord = coordinates(value)
             if coord:
                 # Aynı konum birden çok alanda olabilir (iPhone videosu: Keys + UserData); tek satır göster
-                if not any(n == COORD_LABEL for n, _, _ in rows.get(cat, [])):
-                    rows.setdefault(cat, []).insert(0, (COORD_LABEL, pretty_value(gps) if gps else coord,
+                if not any(source(n) == COORD_LABEL for n, _, _ in rows.get(cat, [])):
+                    rows.setdefault(cat, []).insert(0, (tr(COORD_LABEL), pretty_value(gps) if gps else coord,
                                                         STATUS_REMOVED))
                 continue
         rows.setdefault(cat, []).append((label(name), pretty_value(value), STATUS_REMOVED))
-    out = [("🤖", "İçerik kaynağı", ai)] if ai else []
-    out += [(icon, title, rows[k]) for k, icon, title in CATEGORIES if k in rows]
+    out = [("🤖", tr("İçerik kaynağı"), ai)] if ai else []
+    out += [(icon, tr(title), rows[k]) for k, icon, title in CATEGORIES if k in rows]
     if kept:
-        out.append(("✅", "Korunan (kişisel değil)", kept))
+        out.append(("✅", tr("Korunan (kişisel değil)"), kept))
     return out

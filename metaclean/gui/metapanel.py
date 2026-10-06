@@ -7,6 +7,7 @@ from typing import Dict, Optional
 from PySide6.QtWidgets import QFrame, QLabel, QTextBrowser, QVBoxLayout
 
 from ..core import categories
+from ..i18n import tr
 
 READING, FOUND, READY, CLEANED, DISCARDED, FAILED = ("okunuyor", "bulundu", "onay bekliyor", "temizlendi",
                                                      "vazgeçildi", "temizlenemedi")
@@ -44,40 +45,41 @@ class MetaPanel(QFrame):
         self.sections = []
 
     def show_scan(self, name: str, scan: Optional[Dict[str, object]], state: str) -> None:
-        self.title.setText(f"📋 Meta veri — {html.escape(name)}")
+        self.title.setText(tr("📋 Meta veri — {name}", name=html.escape(name)))
         if state == READING and not scan:
-            self.subtitle.setText("Dosyanın içindeki bilgiler okunuyor…")
+            self.subtitle.setText(tr("Dosyanın içindeki bilgiler okunuyor…"))
             self.body.setHtml("")
             self.sections = []
             return
         self.sections = categories.readable(scan or {})
-        personal = sum(len(rows) for _, title, rows in self.sections if not title.startswith("Korunan"))
+        personal = sum(1 for _, _, rows in self.sections for row in rows if row[2] == categories.STATUS_REMOVED)
         if not scan:
-            self.subtitle.setText("Bu dosyanın meta verisi okunamadı.")
+            self.subtitle.setText(tr("Bu dosyanın meta verisi okunamadı."))
         elif personal == 0:
-            self.subtitle.setText("Bu dosyada kişisel bilgi bulunmadı.")
+            self.subtitle.setText(tr("Bu dosyada kişisel bilgi bulunmadı."))
         elif state == CLEANED:
-            self.subtitle.setText(f"Orijinalde {personal} bilgi vardı; kaydedilen temiz kopyada hepsi silindi.")
+            self.subtitle.setText(tr("Orijinalde {n} bilgi vardı; kaydedilen temiz kopyada hepsi silindi.", n=personal))
         elif state == READY:
-            self.subtitle.setText(f"{personal} bilgi bulundu. Temiz kopya hazır ve doğrulandı; “Kaydet”e basınca "
-                                  "bu bilgiler olmadan kaydedilir.")
+            self.subtitle.setText(tr("{n} bilgi bulundu. Temiz kopya hazır ve doğrulandı; “Kaydet”e basınca "
+                                     "bu bilgiler olmadan kaydedilir.", n=personal))
         elif state == DISCARDED:
-            self.subtitle.setText("Vazgeçildi; hiçbir dosya kaydedilmedi. Orijinal dosya olduğu gibi duruyor.")
+            self.subtitle.setText(tr("Vazgeçildi; hiçbir dosya kaydedilmedi. Orijinal dosya olduğu gibi duruyor."))
         elif state == FAILED:
-            self.subtitle.setText(f"{personal} bilgi bulundu, ama bu dosya temizlenemedi; bilgiler dosyada duruyor.")
+            self.subtitle.setText(tr("{n} bilgi bulundu, ama bu dosya temizlenemedi; bilgiler dosyada duruyor.", n=personal))
         else:
-            self.subtitle.setText(f"{personal} kişisel ya da teknik bilgi bulundu; temiz kopyada silinecek.")
+            self.subtitle.setText(tr("{n} kişisel ya da teknik bilgi bulundu; temiz kopyada silinecek.", n=personal))
         self.body.setHtml(self._html(state))
 
     def _html(self, state: str) -> str:
         removed_text, removed_color = _BADGE[state]
+        removed_text = tr(removed_text)
         parts = []
         for icon, title, rows in self.sections:
             parts.append(f"<p style='margin:8px 0 2px 0'><b>{icon} {html.escape(title)}</b></p>"
                          "<table width='100%' cellspacing='0' cellpadding='3'>")
             for label, value, status in rows:
                 if status == categories.STATUS_KEPT:
-                    badge, color = "Korunuyor", "#2e9e5b"
+                    badge, color = tr("Korunuyor"), "#2e9e5b"
                 else:
                     badge, color = removed_text, removed_color
                 parts.append(f"<tr><td width='38%' style='color:gray'>{html.escape(label)}</td>"

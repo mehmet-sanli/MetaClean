@@ -41,7 +41,7 @@ class CategoryTests(unittest.TestCase):
         self.assertIn("Konum", out)
         self.assertEqual(out["Cihaz bilgisi"], "Canon")
         self.assertEqual(out["İsim / sahip"], "Ayşe")
-        self.assertIn("Tarih ve saat", out)
+        self.assertEqual(out["Tarih ve saat"], "15 Ağustos 2026, 14:22", "kartta da panel gibi okunur tarih")
 
     def test_gps_position_formatted(self):
         out = self.summarize([("GPS", "GPSLatitude", "x")], scan={"Composite:GPSPosition": "41 deg 0' 29.50\" N, 28 deg 58' 42.00\" E"})
@@ -99,6 +99,143 @@ class CategoryTests(unittest.TestCase):
     def test_numeric_values_hidden(self):
         out = self.summarize([("XMP-dc", "Rating", "5")])
         self.assertEqual(out["Açıklama ve etiketler"], "")
+
+
+class I18nTests(unittest.TestCase):
+    """Dil desteği: her metnin İngilizcesi var, mantık görünen dile bağlı değil."""
+
+    def tearDown(self):
+        from metaclean import i18n
+        i18n.set_language("tr")
+
+    @staticmethod
+    def translatable_keys():
+        """Koddaki tr("…") literalleri ve tablolar üzerinden tr()'ye giden metinler."""
+        import ast
+        root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "metaclean")
+        keys = set()
+        for folder, _, files in os.walk(root):
+            for f in files:
+                if f.endswith(".py") and f != "i18n_en.py":
+                    with open(os.path.join(folder, f), encoding="utf-8") as fh:
+                        tree = ast.parse(fh.read())
+                    keys |= {n.args[0].value for n in ast.walk(tree)
+                             if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "tr" and n.args
+                             and isinstance(n.args[0], ast.Constant) and isinstance(n.args[0].value, str)}
+        from metaclean.core.handlers import audio, images, video
+        keys |= set(categories.LABELS.values()) | set(categories.VALUES.values()) | set(categories._MONTHS)
+        keys |= {t for _, _, t in categories.CATEGORIES} | {categories.COORD_LABEL}
+        keys |= set(images.PNG_NAMES.values()) | set(video.DATA_NAMES.values()) | set(audio.FLAC_NAMES.values())
+        return keys
+
+    def test_every_text_has_english(self):
+        from metaclean.i18n_en import EN
+        missing = sorted(k for k in self.translatable_keys() if k not in EN)
+        self.assertEqual(missing, [], "İngilizce karşılığı olmayan metinler")
+
+    def test_placeholders_match(self):
+        import string
+        from metaclean.i18n_en import EN
+        fields = lambda t: sorted(f for _, f, _, _ in string.Formatter().parse(t) if f)
+        self.assertEqual([k for k, v in EN.items() if fields(k) != fields(v)], [])
+
+    def test_translation_keeps_turkish_source(self):
+        from metaclean import i18n
+        i18n.set_language("en")
+        t = i18n.tr("{name}, {n} bayt", name=i18n.tr("JFXX / APP0 küçük resmi"), n=12)
+        self.assertEqual(t, "JFXX / APP0 thumbnail, 12 bytes")
+        self.assertEqual(i18n.source(t), "JFXX / APP0 küçük resmi, 12 bayt", "iç içe metin de Türkçe aslıyla")
+
+    def test_language_resolution(self):
+        from metaclean.i18n import resolve
+        self.assertEqual(resolve("auto", ["tr-TR", "en-US"]), "tr")
+        self.assertEqual(resolve("auto", ["de-DE"]), "en", "Türkçe olmayan her sistem İngilizce")
+        self.assertEqual(resolve("auto", []), "en")
+        self.assertEqual(resolve("tr", ["en-US"]), "tr", "ayardaki seçim sistemi geçersiz kılar")
+
+    def test_logic_independent_of_language(self):
+        # İngilizce modda da kart etiketleri Türkçe asla bakarak doğru konmalı
+        from metaclean import i18n
+        i18n.set_language("en")
+        r = Report(path="x")
+        r.removed = [i18n.tr("JFIF küçük resmi ({n} bayt)", n=300),
+                     i18n.tr("İz {i}: {name} [{tag}]", i=2, name=i18n.tr("Kamera hareket/GPS izi (camm)"), tag="camm")]
+        titles = [t for _, t, _ in categories.summarize(r)]
+        self.assertEqual(titles, ["Location", "Thumbnail / cover"])
+        self.assertEqual(categories.pretty_value("2026:08:15 14:22:33"), "15 August 2026, 14:22")
+
+
+class StabilityTests(unittest.TestCase):
+    """Güvenlik/kararlılık incelemesinde bulunan hataların gerilemesi."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="metaclean-kararlilik-")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _id3(self, size: int) -> bytes:
+        ss = bytes([(size >> 21) & 0x7F, (size >> 14) & 0x7F, (size >> 7) & 0x7F, size & 0x7F])
+        return b"ID3\x04\x00\x00" + ss + b"\x00" * size
+
+    def test_large_id3_tag_still_detected(self):
+        # Gerileme: 8 KB'tan büyük ID3 (gömülü kapak resmi) MP3/FLAC'ı "desteklenmeyen" yapıyordu
+        from metaclean.core import detect
+        mp3_frame = b"\xff\xfb\x90\x64" + b"\x00" * 400
+        for name, body, fmt in (("a.mp3", self._id3(250_000) + mp3_frame, "mp3"),
+                                ("b.flac", self._id3(60_000) + b"fLaC" + b"\x00" * 100, "flac"),
+                                ("c.mp3", self._id3(20) + self._id3(30_000) + mp3_frame, "mp3")):
+            path = os.path.join(self.tmp, name)
+            with open(path, "wb") as f:
+                f.write(body)
+            self.assertEqual(detect.detect(path), fmt, name)
+
+    def test_decompression_bomb_refused(self):
+        # Birkaç baytlık ama 30000x30000 piksel olduğunu söyleyen PNG belleği tüketmeden reddedilmeli
+        import struct
+        import zlib
+        from PIL import Image
+        from metaclean.core.handlers import images
+        chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d))
+        png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 30000, 30000, 8, 2, 0, 0, 0))
+               + chunk(b"IDAT", zlib.compress(b"")) + chunk(b"IEND", b""))
+        path = os.path.join(self.tmp, "bomba.png")
+        with open(path, "wb") as f:
+            f.write(png)
+        with self.assertRaises(Image.DecompressionBombError):
+            images.decode_digest(path)
+
+    def test_timestamp_failure_does_not_fail_save(self):
+        from metaclean.core import timestamps
+        path = os.path.join(self.tmp, "x.bin")
+        open(path, "wb").close()
+        with mock.patch.object(timestamps.os, "utime", side_effect=PermissionError("kilitli")):
+            notes = timestamps.apply(path)
+        self.assertTrue(any(n.startswith("✗") for n in notes), notes)
+
+    def test_tool_finder_does_not_chmod_user_files(self):
+        from metaclean.core import tools
+        path = os.path.join(self.tmp, "exiftool-sahte")
+        with open(path, "w") as f:
+            f.write("calistirilamaz")
+        os.chmod(path, 0o644)
+        tools.set_override("exiftool", path)
+        try:
+            tools.find_tool("exiftool")
+        finally:
+            tools.set_override("exiftool", None)
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o644, "kullanıcının dosyasının iznine dokunulmamalı")
+
+    def test_frame_parameter_translated(self):
+        from metaclean import i18n
+        from metaclean.core.handlers import images
+        i18n.set_language("en")
+        try:
+            self.assertEqual(images._param_label("kare 3"), "frame 3")
+            self.assertEqual(images._param_label("yön"), "orientation")
+        finally:
+            i18n.set_language("tr")
 
 
 class FetchToolsTests(unittest.TestCase):

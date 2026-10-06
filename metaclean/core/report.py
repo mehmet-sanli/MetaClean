@@ -41,6 +41,7 @@ class Report:
     warnings: List[str] = field(default_factory=list)
     log: List[str] = field(default_factory=list)
     error: Optional[str] = None
+    error_kind: str = ""  # "unsupported" | "missing_tool" | "cancelled": arayüz metne değil buna bakar
     scan: Dict[str, object] = field(default_factory=dict)        # orijinalin tam ExifTool taraması
     clean_scan: Dict[str, object] = field(default_factory=dict)  # temiz sürümün taraması
 

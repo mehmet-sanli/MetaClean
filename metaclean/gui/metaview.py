@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QHeaderView, Q
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from ..core import allowlist
+from ..i18n import source, tr
 
 RED, GREEN, GREY, AMBER = QColor("#d64545"), QColor("#2e9e5b"), QColor("#8a8a8a"), QColor("#c98a00")
 
@@ -33,17 +34,17 @@ GROUP_TITLES = {
 def classify(group: str, name: str, value: object) -> tuple:
     """(etiket, renk, hassas mı)"""
     if group == "System" or (group == "File" and name != "Comment"):
-        return "Dosya sistemi", GREY, False
+        return tr("Dosya sistemi"), GREY, False
     if group == "ExifTool":
-        return "Araç", GREY, False
+        return tr("Araç"), GREY, False
     if group == "Composite":
         sensitive = any(k in name for k in ("GPS", "Date", "Serial", "Lens"))
-        return ("Türetilmiş – kaynağıyla silinir" if sensitive else "Türetilmiş"), (RED if sensitive else GREY), False
+        return (tr("Türetilmiş – kaynağıyla silinir") if sensitive else tr("Türetilmiş")), (RED if sensitive else GREY), False
     if not allowlist.is_allowed(group, name, value):
-        return "Hassas – silinir", RED, True
+        return tr("Hassas – silinir"), RED, True
     if group.startswith("ICC") or name in KEPT_NAMES or group == "Adobe":
-        return "Korunur (görüntüleme için)", GREEN, False
-    return "Yapısal", GREY, False
+        return tr("Korunur (görüntüleme için)"), GREEN, False
+    return tr("Yapısal"), GREY, False
 
 
 class MetadataView(QWidget):
@@ -57,16 +58,16 @@ class MetadataView(QWidget):
         self.source = QComboBox()
         self.source.currentIndexChanged.connect(self._render)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Ara: alan, değer ya da grup (ör. GPS, Date, Model)")
+        self.search.setPlaceholderText(tr("Ara: alan, değer ya da grup (ör. GPS, Date, Model)"))
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self._render)
-        self.only_sensitive = QCheckBox("Yalnızca hassas")
+        self.only_sensitive = QCheckBox(tr("Yalnızca hassas"))
         self.only_sensitive.toggled.connect(self._render)
-        self.hide_fs = QCheckBox("Dosya sistemini gizle")
+        self.hide_fs = QCheckBox(tr("Dosya sistemini gizle"))
         self.hide_fs.setChecked(True)
         self.hide_fs.toggled.connect(self._render)
-        copy = QPushButton("Kopyala")
-        copy.setToolTip("Görünen alanları metin olarak panoya kopyalar")
+        copy = QPushButton(tr("Kopyala"))
+        copy.setToolTip(tr("Görünen alanları metin olarak panoya kopyalar"))
         copy.clicked.connect(self._copy)
         bar.addWidget(self.source)
         bar.addWidget(self.search, 1)
@@ -75,7 +76,7 @@ class MetadataView(QWidget):
         bar.addWidget(copy)
         lay.addLayout(bar)
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["Alan", "Değer", "Durum"])
+        self.tree.setHeaderLabels([tr("Alan"), tr("Değer"), tr("Durum")])
         self.tree.setAlternatingRowColors(True)
         self.tree.setUniformRowHeights(True)
         h = self.tree.header()
@@ -93,9 +94,9 @@ class MetadataView(QWidget):
         self._cleanable = cleanable
         self._scans = {}
         if original:
-            self._scans["Orijinal dosya"] = original
+            self._scans[tr("Orijinal dosya")] = original
         if clean:
-            self._scans["Temiz sürüm (kaydedilecek)"] = clean
+            self._scans[tr("Temiz sürüm (kaydedilecek)")] = clean
         keep = self.source.currentText()
         self.source.blockSignals(True)
         self.source.clear()
@@ -107,10 +108,10 @@ class MetadataView(QWidget):
         self._render()
 
     def count_text(self) -> str:
-        scan = self._scans.get("Orijinal dosya", {})
+        scan = self._scans.get(tr("Orijinal dosya"), {})
         fields = [k for k in scan if ":" in k]
         hassas = sum(1 for k in fields if classify(*k.split(":", 1), scan[k])[2])
-        return f"{hassas} hassas / {len(fields)} alan" if fields else "—"
+        return tr("{s} hassas / {n} alan", s=hassas, n=len(fields)) if fields else "—"
 
     def _render(self) -> None:
         self.tree.clear()
@@ -123,12 +124,12 @@ class MetadataView(QWidget):
                 continue
             group, name = key.split(":", 1)
             label, color, sensitive = classify(group, name, value)
-            if not self._cleanable and label not in ("Dosya sistemi", "Araç"):
+            if not self._cleanable and source(label) not in ("Dosya sistemi", "Araç"):
                 # Bu biçim temizlenemiyor: hiçbir alan silinmeyecek, yalnızca okunuyor
-                label, color = ("Kişisel olabilir – bu biçim temizlenemez", AMBER) if sensitive else ("Okundu", GREY)
+                label, color = (tr("Kişisel olabilir – bu biçim temizlenemez"), AMBER) if sensitive else (tr("Okundu"), GREY)
             total += 1
             hassas += sensitive
-            if self.hide_fs.isChecked() and label in ("Dosya sistemi", "Araç"):
+            if self.hide_fs.isChecked() and source(label) in ("Dosya sistemi", "Araç"):
                 continue
             if self.only_sensitive.isChecked() and not sensitive:
                 continue
@@ -137,7 +138,7 @@ class MetadataView(QWidget):
                 continue
             parent = groups.get(group)
             if parent is None:
-                parent = QTreeWidgetItem([GROUP_TITLES.get(group, group), "", ""])
+                parent = QTreeWidgetItem([tr(GROUP_TITLES[group]) if group in GROUP_TITLES else group, "", ""])
                 f = parent.font(0)
                 f.setBold(True)
                 parent.setFont(0, f)
@@ -160,14 +161,15 @@ class MetadataView(QWidget):
             shown += 1
         for g, parent in groups.items():
             n, s = parent.data(0, Qt.UserRole)
-            parent.setText(2, f"{n} alan" + (f", {s} hassas" if s else ""))
+            parent.setText(2, tr("{n} alan, {s} hassas", n=n, s=s) if s else tr("{n} alan", n=n))
             parent.setForeground(2, QBrush(RED if s else GREY))
             parent.setToolTip(0, g)
         self.tree.expandAll()
         if not scan:
-            self.summary.setText("Meta veri okunmadı (ExifTool bulunamadı ya da dosya henüz incelenmedi).")
+            self.summary.setText(tr("Meta veri okunmadı (ExifTool bulunamadı ya da dosya henüz incelenmedi)."))
         else:
-            self.summary.setText(f"{total} alan, {hassas} hassas · {shown} gösteriliyor · {len(groups)} grup")
+            self.summary.setText(tr("{total} alan, {s} hassas · {shown} gösteriliyor · {g} grup", total=total, s=hassas,
+                                    shown=shown, g=len(groups)))
 
     def _copy(self) -> None:
         lines = []

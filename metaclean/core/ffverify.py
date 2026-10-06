@@ -5,6 +5,7 @@ import json
 from fractions import Fraction
 from typing import Dict, List, Optional, Tuple
 
+from ..i18n import tr
 from . import tools
 
 # Akış karşılaştırmasında eşit olması gereken teknik alanlar
@@ -31,7 +32,7 @@ def decode_hashes(path: str, maps: List[str], *, video: bool, ctx) -> Tuple[Opti
     cp = tools.run(args, log=ctx.log, cancel=ctx.cancel)
     err = _err(cp)
     if cp.returncode != 0 or err:
-        return None, err or f"ffmpeg çıkış kodu {cp.returncode}"
+        return None, err or tr("ffmpeg çıkış kodu {code}", code=cp.returncode)
     return [l.strip() for l in cp.stdout.decode().splitlines() if l.strip()], ""
 
 
@@ -42,7 +43,7 @@ def packet_table(path: str, maps: List[str], *, ctx) -> Tuple[Optional[Dict[int,
     cp = tools.run(args, log=ctx.log, cancel=ctx.cancel)
     err = _err(cp)
     if cp.returncode != 0 or err:
-        return None, err or f"ffmpeg çıkış kodu {cp.returncode}"
+        return None, err or tr("ffmpeg çıkış kodu {code}", code=cp.returncode)
     tbs: Dict[int, Fraction] = {}
     streams: Dict[int, list] = {}
     for line in cp.stdout.decode().splitlines():
@@ -62,7 +63,7 @@ def compare_packets(a: Dict[int, list], b: Dict[int, list]) -> List[str]:
     (zaman tabanı değişebileceği için) bir tik toleransla karşılaştırılır."""
     problems = []
     if sorted(a) != sorted(b):
-        return [f"Akış sayısı farklı: {len(a)} ≠ {len(b)}"]
+        return [tr("Akış sayısı farklı: {a} ≠ {b}", a=len(a), b=len(b))]
 
     def origin(t):
         return min(s[0][0] for s in t.values() if s)
@@ -71,16 +72,16 @@ def compare_packets(a: Dict[int, list], b: Dict[int, list]) -> List[str]:
     for i in sorted(a):
         pa, pb = a[i], b[i]
         if len(pa) != len(pb):
-            problems.append(f"Akış {i}: paket sayısı farklı ({len(pa)} ≠ {len(pb)})")
+            problems.append(tr("Akış {i}: paket sayısı farklı ({a} ≠ {b})", i=i, a=len(pa), b=len(pb)))
             continue
         for n, (x, y) in enumerate(zip(pa, pb)):
             if x[3:5] != y[3:5]:
-                problems.append(f"Akış {i}, paket {n}: veri farklı")
+                problems.append(tr("Akış {i}, paket {n}: veri farklı", i=i, n=n))
                 break
             tol = max(x[5], y[5])
             if abs((x[1] - oa) - (y[1] - ob)) > tol or abs(x[2] - y[2]) > tol:
-                problems.append(f"Akış {i}, paket {n}: zamanlama farklı "
-                                f"({float(x[1] - oa):.6f}s ≠ {float(y[1] - ob):.6f}s)")
+                problems.append(tr("Akış {i}, paket {n}: zamanlama farklı ({a}s ≠ {b}s)", i=i, n=n,
+                                   a=f"{float(x[1] - oa):.6f}", b=f"{float(y[1] - ob):.6f}"))
                 break
     return problems
 
@@ -98,7 +99,7 @@ def _side_data(s: dict) -> str:
 def compare_streams(a: List[dict], b: List[dict], *, fields=STREAM_FIELDS) -> List[str]:
     problems = []
     if len(a) != len(b):
-        return [f"İz sayısı farklı: {len(a)} ≠ {len(b)}"]
+        return [tr("İz sayısı farklı: {a} ≠ {b}", a=len(a), b=len(b))]
     for i, (x, y) in enumerate(zip(a, b)):
         for f in fields:
             # FFmpeg'in MP4 okuyucusu mov_text extradata'sına her remux'ta bir 'btrt' kutusu daha ekler;
@@ -106,17 +107,17 @@ def compare_streams(a: List[dict], b: List[dict], *, fields=STREAM_FIELDS) -> Li
             if f == "extradata_hash" and x.get("codec_name") == "mov_text":
                 continue
             if x.get(f) != y.get(f):
-                problems.append(f"İz {i} – {f}: {x.get(f)!r} ≠ {y.get(f)!r}")
+                problems.append(tr("İz {i} – {f}: {a} ≠ {b}", i=i, f=f, a=repr(x.get(f)), b=repr(y.get(f))))
         if _side_data(x) != _side_data(y):
-            problems.append(f"İz {i} – yan veri (döndürme/HDR/Dolby Vision) farklı: "
-                            f"{_side_data(x)} ≠ {_side_data(y)}")
+            problems.append(tr("İz {i} – yan veri (döndürme/HDR/Dolby Vision) farklı: {a} ≠ {b}", i=i,
+                               a=_side_data(x), b=_side_data(y)))
         if x.get("disposition") != y.get("disposition"):
-            problems.append(f"İz {i} – disposition farklı")
+            problems.append(tr("İz {i} – disposition farklı", i=i))
         if "nb_frames" in x and "nb_frames" in y and x["nb_frames"] != y["nb_frames"]:
-            problems.append(f"İz {i} – kare sayısı: {x['nb_frames']} ≠ {y['nb_frames']}")
+            problems.append(tr("İz {i} – kare sayısı: {a} ≠ {b}", i=i, a=x["nb_frames"], b=y["nb_frames"]))
         da, db = x.get("duration"), y.get("duration")
         if da and db and abs(float(da) - float(db)) > 0.05:
-            problems.append(f"İz {i} – süre: {da} ≠ {db}")
+            problems.append(tr("İz {i} – süre: {a} ≠ {b}", i=i, a=da, b=db))
     return problems
 
 
@@ -125,7 +126,7 @@ def describe(s: dict) -> str:
     if t == "video":
         rot = next((d.get("rotation") for d in s.get("side_data_list", []) if "rotation" in d), 0)
         return (f"video {s.get('codec_name')} {s.get('width')}x{s.get('height')} {s.get('pix_fmt')} "
-                f"{s.get('color_transfer') or ''} döndürme {rot}°").strip()
+                f"{s.get('color_transfer') or ''} {tr('döndürme')} {rot}°").strip()
     if t == "audio":
-        return f"ses {s.get('codec_name')} {s.get('sample_rate')} Hz {s.get('channels')} kanal"
+        return tr("ses {codec} {rate} Hz {ch} kanal", codec=s.get("codec_name"), rate=s.get("sample_rate"), ch=s.get("channels"))
     return f"{t} {s.get('codec_name')}"

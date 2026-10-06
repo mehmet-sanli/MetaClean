@@ -1,5 +1,8 @@
 # MetaClean
 
+**Diller:** Türkçe ve İngilizce (English). Uygulama bilgisayarın diliyle açılır (Türkçe sistemde Türkçe,
+diğerlerinde İngilizce); **Diğer → Ayarlar → Dil / Language**'dan değiştirilebilir.
+
 Sürümü öğrenmek için: `python -m metaclean --version` ya da uygulamada **Diğer → MetaClean hakkında**.
 
 Görsel, ses ve video dosyalarından meta veriyi **yeniden kodlamadan** silen, sonucu kanıtlamadan
@@ -104,6 +107,7 @@ metaclean/
   core/categories.py    alan adlarını ve değerleri herkesin anlayacağı Türkçeye çevirir
   gui/simple_window.py  Qt6 arayüzü: tek pencere (bırak -> gör -> Kaydet)
   gui/metapanel.py      ana ekranın altındaki meta veri paneli
+  i18n.py, i18n_en.py   dil desteği: tr("Türkçe metin") ve İngilizce karşılıkları
   gui/macdrop.py        macOS galerilerinden sürükle-bırak (dosya sözleri, PyObjC)
 packaging/              PyInstaller tarifi, araç indirici, simge üretici, Linux .desktop
 .github/workflows/      Windows / macOS / Linux için otomatik test ve paketleme

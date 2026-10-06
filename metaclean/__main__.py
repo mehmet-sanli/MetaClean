@@ -13,7 +13,8 @@ def _excepthook(kind, value, tb):
     text = "".join(traceback.format_exception(kind, value, tb))
     logging.getLogger("metaclean").error("Yakalanmamış hata:\n%s", text)
     if QApplication.instance():
-        QMessageBox.critical(None, "Beklenmeyen hata", text[-2000:])
+        from .i18n import tr
+        QMessageBox.critical(None, tr("Beklenmeyen hata"), text[-2000:])
 
 
 def selftest() -> int:
@@ -84,6 +85,8 @@ def main() -> int:
     from PySide6.QtGui import QIcon
     assets = os.path.join(os.path.dirname(__file__), "gui", "assets")
     app.setWindowIcon(QIcon(os.path.join(assets, "logo.svg")))
+    from .gui import langsetup
+    langsetup.apply(app)
     from .gui.simple_window import SimpleWindow
     win = SimpleWindow()
     win.show()

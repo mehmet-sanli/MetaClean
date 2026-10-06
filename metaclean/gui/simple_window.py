@@ -13,15 +13,16 @@ from typing import Dict, List, Optional
 
 from PySide6.QtCore import QObject, QRunnable, QSize, QStandardPaths, Qt, QThreadPool, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QImage, QImageReader, QPixmap
-from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QMainWindow,
-                               QMessageBox, QProgressBar, QPushButton, QScrollArea, QSizePolicy, QSplitter,
-                               QTabWidget, QTextBrowser, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QDialog, QDialogButtonBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
+                               QMainWindow, QMessageBox, QProgressBar, QPushButton, QScrollArea, QSizePolicy,
+                               QSplitter, QTabWidget, QTextBrowser, QVBoxLayout, QWidget)
 
 from ..core import detect, tools
 from ..core.categories import summarize
 from ..core.handlers import images
 from ..core.session import Job, neutral_name
-from . import dialogs, macdrop, metapanel
+from ..i18n import source, tr
+from . import dialogs, langsetup, macdrop, metapanel
 from .metaview import MetadataView
 
 log = logging.getLogger("metaclean.gui")
@@ -89,20 +90,52 @@ def logo_pixmap(size: int) -> QPixmap:
 
 def output_dir() -> str:
     desktop = QStandardPaths.writableLocation(QStandardPaths.DesktopLocation) or os.path.expanduser("~")
-    return os.path.join(desktop, OUTPUT_DIR_NAME)
+    return os.path.join(desktop, tr(OUTPUT_DIR_NAME))
+
+
+# Küçük resim yalnızca uygulamanın tanıdığı biçimlerden ve yalnızca o biçimin çözücüsüyle üretilir: dosya
+# güvenilmez olabilir; Qt'nin ve Pillow'un bütün çözücülerine (ör. Ghostscript çağıran EPS) verilmez.
+QT_THUMB_FORMATS = {"jpeg": b"jpeg", "png": b"png", "webp": b"webp"}
+PIL_THUMB_FORMATS = {"heif": "HEIF", "avif": "AVIF"}
 
 
 def pil_thumbnail(path: str, size: int = 176) -> QImage:
     """Qt'nin okuyamadığı biçimler (iPhone HEIC, AVIF) için küçük resmi pillow-heif ile çözer."""
     try:
         from PIL import ImageOps
-        with images._pil().open(path) as im:
+        Image = images._pil()
+        Image.init()
+        allowed = [f for f in PIL_THUMB_FORMATS.values() if f in Image.OPEN]
+        with Image.open(path, formats=allowed) as im:
             im = ImageOps.exif_transpose(im)
             im.thumbnail((size, size))
             im = im.convert("RGBA")
             return QImage(im.tobytes(), im.width, im.height, im.width * 4, QImage.Format_RGBA8888).copy()
     except Exception:  # noqa: BLE001 - küçük resim yoksa simge kalır
         return QImage()
+
+
+def video_frame(path: str, size: int = 176, cancel=None) -> bytes:
+    """Videonun 1. saniyesindeki kareyi (kısa videoda ilk kareyi) PNG olarak döndürür; diske yazılmaz.
+    cancel: iş iptal edilir ya da pencere kapanırsa takılan ffmpeg durdurulur."""
+    for seek in (["-ss", "1"], []):
+        try:
+            cp = tools.run([tools.require("ffmpeg"), "-nostdin", "-v", "error", *seek, "-i", path, "-frames:v", "1",
+                            "-vf", f"scale={size}:{size}:force_original_aspect_ratio=decrease",
+                            "-f", "image2pipe", "-c:v", "png", "-"], cancel=cancel)
+        except (tools.ToolError, tools.Cancelled):
+            return b""
+        if cp.returncode == 0 and cp.stdout:
+            return cp.stdout
+    return b""
+
+
+def _supported(path: str) -> bool:
+    """Klasör taranırken: okunamayan tek bir dosya bütün bırakma işlemini durdurmasın."""
+    try:
+        return detect.detect(path) is not None
+    except OSError:
+        return False
 
 
 def reveal(path: str) -> None:
@@ -118,21 +151,22 @@ def reveal(path: str) -> None:
 def friendly_error(job: Job) -> str:
     r = job.report
     err = r.error or ""
-    if err.startswith("Desteklenmeyen"):
-        return f"Bu dosya türü desteklenmiyor.\nDesteklenenler: {SUPPORTED_TEXT}."
-    if "bulunamadı" in err and any(t in err for t in tools.TOOLS):
-        return "Gerekli bir bileşen eksik (ExifTool ya da FFmpeg). Sağ üstteki “Ayrıntılar” menüsünden “Araçlar”a bakın."
-    if err == "İptal edildi.":
-        return "İptal edildi."
+    if r.error_kind == "unsupported":
+        return tr("Bu dosya türü desteklenmiyor.\nDesteklenenler: {formats}.", formats=tr(SUPPORTED_TEXT))
+    if r.error_kind == "missing_tool":
+        return tr("Gerekli bir bileşen eksik (ExifTool ya da FFmpeg). Sağ üstteki “Diğer” menüsünden “Araçlar”a bakın.")
+    if r.error_kind == "cancelled":
+        return tr("İptal edildi.")
     if r.gates and not r.ok:
-        return ("Bu dosya güvenle temizlenemedi. Kaliteyi bozmamak ya da bilgi kaçırmamak için kopya "
-                "oluşturulmadı. Teknik ayrıntılar için “Ayrıntılar”a tıklayın.")
-    return f"Dosya işlenemedi: {err}"
+        return tr("Bu dosya güvenle temizlenemedi. Kaliteyi bozmamak ya da bilgi kaçırmamak için kopya "
+                  "oluşturulmadı. Teknik ayrıntılar için “Ayrıntılar”a tıklayın.")
+    return tr("Dosya işlenemedi: {err}", err=err)
 
 
 class _Signals(QObject):
-    stage = Signal(int, str)
+    stage = Signal(int, object)  # Text: Türkçe aslı (source) aşama eşlemesinde kullanılır
     scanned = Signal(int, object)
+    thumb = Signal(int, bytes)           # videodan çıkarılan küçük resim (PNG)
     done = Signal(int, object)           # hazırlık bitti: (kart, hata)
     saved = Signal(int, object, object)  # kaydetme bitti: (kart, hedef, hata)
     received = Signal(str)         # galeriden (dosya sözüyle) gelen dosya hazır
@@ -156,7 +190,10 @@ class _Task(QRunnable):
         except Exception:  # noqa: BLE001 - asıl hata aşağıda prepare'de raporlanır
             pass
         try:
-            self.job.prepare(lambda text: self.signals.stage.emit(self.cid, text), scan)
+            r = self.job.prepare(lambda text: self.signals.stage.emit(self.cid, text), scan)
+            if self.job.ready and detect.kind(r.fmt) == "video":
+                # Kare çıkarmak birkaç yüz ms sürebilir; pencere donmasın diye burada, arka planda
+                self.signals.thumb.emit(self.cid, video_frame(self.job.out, cancel=self.job.cancel))
             self.signals.done.emit(self.cid, None)
         except Exception as e:  # noqa: BLE001 - kartta gösterilir
             self.job.discard()
@@ -189,12 +226,13 @@ STAGE_TEXT = [
     ("SHA-256", "Dosya okunuyor…"), ("taranıyor", "Gizli bilgiler aranıyor…"), ("okunuyor", "Gizli bilgiler aranıyor…"),
     ("Temizleniyor", "Gizli bilgiler kaldırılıyor…"), ("Remux", "Gizli bilgiler kaldırılıyor…"),
     ("Bütünlük", "Kalite kontrol ediliyor…"), ("Eşdeğerlik", "Kalite kontrol ediliyor…"),
-    ("Temizlik", "Son kontrol yapılıyor…"), ("kaydediliyor", "Kaydediliyor…"),
+    ("Temizlik", "Son kontrol yapılıyor…"),
 ]
 
 
-def stage_text(raw: str) -> str:
-    return next((t for k, t in STAGE_TEXT if k in raw), "Hazırlanıyor…")
+def stage_text(raw) -> str:
+    raw = source(raw)  # görünen dile değil Türkçe aslına bakılır
+    return tr(next((t for k, t in STAGE_TEXT if k in raw), "Hazırlanıyor…"))
 
 
 class ResultCard(QFrame):
@@ -209,7 +247,7 @@ class ResultCard(QFrame):
         self.saving = False
         self.setObjectName("card")
         self.setCursor(Qt.PointingHandCursor)
-        self.setToolTip("Meta verisini aşağıda görmek için tıklayın")
+        self.setToolTip(tr("Meta verisini aşağıda görmek için tıklayın"))
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(14, 12, 14, 12)
@@ -224,7 +262,7 @@ class ResultCard(QFrame):
         self.name = QLabel(os.path.basename(job.path))
         self.name.setTextFormat(Qt.PlainText)  # dosya adı biçimlendirme (HTML) olarak yorumlanmasın
         self.name.setObjectName("cardName")
-        self.status = QLabel("Sırada…")
+        self.status = QLabel(tr("Sırada…"))
         self.status.setObjectName("cardStatus")
         self.status.setWordWrap(True)
         self.bar = QProgressBar()
@@ -246,28 +284,28 @@ class ResultCard(QFrame):
         body.addWidget(self.chips)
         body.addWidget(self.note)
         buttons = QHBoxLayout()
-        self.btn_save = QPushButton("Kaydet")
+        self.btn_save = QPushButton(tr("Kaydet"))
         self.btn_save.setObjectName("primary")
         self.btn_save.setCursor(Qt.PointingHandCursor)
-        self.btn_save.setToolTip("Temiz kopyayı masaüstündeki “Paylaşıma Hazır” klasörüne kaydeder")
+        self.btn_save.setToolTip(tr("Temiz kopyayı masaüstündeki “{folder}” klasörüne kaydeder", folder=tr(OUTPUT_DIR_NAME)))
         self.btn_save.clicked.connect(lambda: self.window.save_card(self))
         self.btn_save.hide()
-        self.btn_discard = QPushButton("Vazgeç")
+        self.btn_discard = QPushButton(tr("Vazgeç"))
         self.btn_discard.setObjectName("link")
-        self.btn_discard.setToolTip("Hiçbir şey kaydetmeden temiz kopyayı at")
+        self.btn_discard.setToolTip(tr("Hiçbir şey kaydetmeden temiz kopyayı at"))
         self.btn_discard.clicked.connect(self.discard)
         self.btn_discard.hide()
-        self.btn_show = QPushButton("Temiz kopyayı göster")
+        self.btn_show = QPushButton(tr("Temiz kopyayı göster"))
         self.btn_show.setObjectName("primary")
         self.btn_show.setCursor(Qt.PointingHandCursor)
         self.btn_show.clicked.connect(lambda: reveal(self.dest))
         self.btn_show.hide()
-        self.btn_details = QPushButton("Ayrıntılar")
+        self.btn_details = QPushButton(tr("Ayrıntılar"))
         self.btn_details.setObjectName("link")
         self.btn_details.setCursor(Qt.PointingHandCursor)
         self.btn_details.clicked.connect(self.open_details)
         self.btn_details.hide()
-        self.btn_cancel = QPushButton("İptal")
+        self.btn_cancel = QPushButton(tr("İptal"))
         self.btn_cancel.setObjectName("link")
         self.btn_cancel.clicked.connect(self.cancel)
         buttons.addWidget(self.btn_save)
@@ -288,15 +326,18 @@ class ResultCard(QFrame):
         self.thumb.setText(KIND_ICON.get(detect.kind(fmt), "📄") if fmt else "📄")
 
     def _load_thumbnail(self, path: str) -> None:
-        reader = QImageReader(path)
-        reader.setAutoTransform(True)  # EXIF yönüne göre çevir
-        if reader.canRead():
+        fmt = self.job.report.fmt  # imzadan tanınan biçim; tanınmayan dosyaya küçük resim yok
+        if fmt in QT_THUMB_FORMATS:
+            reader = QImageReader(path, QT_THUMB_FORMATS[fmt])
+            reader.setAutoTransform(True)  # EXIF yönüne göre çevir
             size = reader.size()
             if size.isValid():
                 reader.setScaledSize(size.scaled(QSize(176, 176), Qt.KeepAspectRatio))
-            img = reader.read()
-        else:
-            img = pil_thumbnail(path)
+            self.show_image(reader.read())
+        elif fmt in PIL_THUMB_FORMATS:
+            self.show_image(pil_thumbnail(path))
+
+    def show_image(self, img: QImage) -> None:
         if not img.isNull():
             pix = QPixmap.fromImage(img).scaled(QSize(88, 88), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
             self.thumb.setPixmap(pix.copy((pix.width() - 88) // 2, (pix.height() - 88) // 2, 88, 88))
@@ -312,15 +353,15 @@ class ResultCard(QFrame):
         self.btn_details.show()
         r = self.job.report
         if self.job.ready:
-            self.status.setText("<b style='color:#2e9e5b'>✅ Temiz kopya hazır</b> &nbsp;·&nbsp; "
-                                "<span>henüz kaydedilmedi; kaydetmek için “Kaydet”e basın</span>")
+            self.status.setText(f"<b style='color:#2e9e5b'>✅ {tr('Temiz kopya hazır')}</b> &nbsp;·&nbsp; "
+                                f"<span>{tr('henüz kaydedilmedi; kaydetmek için “Kaydet”e basın')}</span>")
             self._load_thumbnail(self.job.out)
             self.btn_save.show()
             self.btn_discard.show()
             items = summarize(r)
             self.found_items = bool(items)
             if items:
-                self.chips_head = QLabel("<b>Kaydedince silinecek gizli bilgiler:</b>")
+                self.chips_head = QLabel(f"<b>{tr('Kaydedince silinecek gizli bilgiler:')}</b>")
                 self.chips_lay.addWidget(self.chips_head)
                 for icon, title, value in items:
                     text = f"{icon} <b>{html.escape(title)}</b>"
@@ -331,19 +372,19 @@ class ResultCard(QFrame):
                     lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
                     self.chips_lay.addWidget(lbl)
             else:
-                self.chips_lay.addWidget(QLabel("Dosyada kişisel bilgi bulunmadı; isterseniz yine de temiz kopyayı "
-                                                "kaydedebilirsiniz."))
+                self.chips_lay.addWidget(QLabel(tr("Dosyada kişisel bilgi bulunmadı; isterseniz yine de temiz kopyayı "
+                                                   "kaydedebilirsiniz.")))
             self.chips.show()
-            notes = [w for w in r.warnings if "küçük resim öğesi" in w or "derinlik" in w]
+            notes = [w for w in r.warnings if "küçük resim öğesi" in source(w) or "derinlik" in source(w)]
             if self.from_gallery:
-                notes.append("Galeriden alınan geçici kopya silindi; galerideki fotoğrafa dokunulmadı.")
+                notes.append(tr("Galeriden alınan geçici kopya silindi; galerideki fotoğrafa dokunulmadı."))
             if notes:
                 self.note.setText("⚠ " + " ".join(notes))
                 self.note.show()
         else:
             self._load_thumbnail(self.job.real)
-            msg = friendly_error(self.job) if error is None else f"Dosya işlenemedi: {error}"
-            self.status.setText(f"<b style='color:#d64545'>✗ Temiz kopya oluşturulamadı</b><br>{html.escape(msg)}"
+            msg = friendly_error(self.job) if error is None else tr("Dosya işlenemedi: {err}", err=error)
+            self.status.setText(f"<b style='color:#d64545'>✗ {tr('Temiz kopya oluşturulamadı')}</b><br>{html.escape(msg)}"
                                 .replace("\n", "<br>"))
             if not r.scan:
                 self.btn_details.hide()
@@ -352,7 +393,7 @@ class ResultCard(QFrame):
         self.saving = True
         self.btn_save.setEnabled(False)
         self.btn_discard.hide()
-        self.status.setText("Kaydediliyor…")
+        self.status.setText(tr("Kaydediliyor…"))
 
     def saved(self, dest: Optional[str], error) -> None:
         self.saving = False
@@ -362,20 +403,20 @@ class ResultCard(QFrame):
             self.btn_save.hide()
             self.btn_discard.hide()
             self.btn_show.show()
-            self.status.setText(f"<b style='color:#2e9e5b'>✅ Kaydedildi</b> &nbsp;·&nbsp; "
-                                f"<span>{html.escape(OUTPUT_DIR_NAME)} / {html.escape(os.path.basename(dest))}</span>")
+            self.status.setText(f"<b style='color:#2e9e5b'>✅ {tr('Kaydedildi')}</b> &nbsp;·&nbsp; "
+                                f"<span>{html.escape(tr(OUTPUT_DIR_NAME))} / {html.escape(os.path.basename(dest))}</span>")
             if self.found_items:
-                self.chips_head.setText("<b>Kaldırılan gizli bilgiler:</b>")
+                self.chips_head.setText(f"<b>{tr('Kaldırılan gizli bilgiler:')}</b>")
         else:
             self.btn_discard.show()
-            self.status.setText(f"<b style='color:#d64545'>✗ Kaydedilemedi</b><br>{html.escape(str(error))}")
+            self.status.setText(f"<b style='color:#d64545'>✗ {tr('Kaydedilemedi')}</b><br>{html.escape(str(error))}")
 
     def discard(self) -> None:
         self.job.discard()
         self.discarded = True
         self.btn_save.hide()
         self.btn_discard.hide()
-        self.status.setText("<b>Vazgeçildi</b> &nbsp;·&nbsp; hiçbir dosya kaydedilmedi")
+        self.status.setText(f"<b>{tr('Vazgeçildi')}</b> &nbsp;·&nbsp; {tr('hiçbir dosya kaydedilmedi')}")
         self.window.card_changed(self)
 
     @property
@@ -404,7 +445,7 @@ class ResultCard(QFrame):
 
     def cancel(self) -> None:
         self.job.cancel.set()
-        self.status.setText("İptal ediliyor…")
+        self.status.setText(tr("İptal ediliyor…"))
 
     def open_details(self) -> None:
         DetailsDialog(self.job, self.dest, self.window, from_gallery=self.from_gallery).exec()
@@ -416,39 +457,39 @@ class DetailsDialog(QDialog):
     def __init__(self, job: Job, dest: Optional[str], parent=None, from_gallery: bool = False):
         super().__init__(parent)
         r = job.report
-        self.setWindowTitle(f"Ayrıntılar – {os.path.basename(job.path)}")
+        self.setWindowTitle(tr("Ayrıntılar – {name}", name=os.path.basename(job.path)))
         self.resize(900, 640)
         lay = QVBoxLayout(self)
         tabs = QTabWidget()
         meta = MetadataView()
         meta.set_scans(r.scan, r.clean_scan or None, cleanable=bool(r.fmt))
-        tabs.addTab(meta, f"Gizli bilgiler ({meta.count_text()})")
+        tabs.addTab(meta, tr("Gizli bilgiler ({count})", count=meta.count_text()))
         proof = QTextBrowser()
         esc = html.escape
         if from_gallery:
-            parts = ["<p><b>Orijinal:</b> galeriden (ör. Fotoğraflar) alındı. Galerideki fotoğrafa dokunulmadı; "
-                     "işlem için alınan geçici kopya silindi.</p>"]
+            parts = [tr("<p><b>Orijinal:</b> galeriden (ör. Fotoğraflar) alındı. Galerideki fotoğrafa dokunulmadı; "
+                        "işlem için alınan geçici kopya silindi.</p>")]
         else:
-            parts = [f"<p><b>Orijinal:</b> {esc(job.real)}<br>Orijinal dosyaya dokunulmadı.</p>"]
+            parts = [tr("<p><b>Orijinal:</b> {path}<br>Orijinal dosyaya dokunulmadı.</p>", path=esc(job.real))]
         if dest:
-            parts.append(f"<p><b>Temiz kopya:</b> {esc(dest)}</p>")
+            parts.append(tr("<p><b>Temiz kopya:</b> {path}</p>", path=esc(dest)))
         if r.gates:
-            parts.append("<h3>Kalite ve temizlik kontrolleri</h3>")
+            parts.append(f"<h3>{tr('Kalite ve temizlik kontrolleri')}</h3>")
             for g in r.gates:
                 c = "#2e9e5b" if g.passed else "#d64545"
                 parts.append(f"<p><b style='color:{c}'>{'✓' if g.passed else '✗'} {esc(g.name)}</b></p><ul>"
                              + "".join(f"<li>{esc(d)}</li>" for d in g.details) + "</ul>")
         if r.removed:
-            parts.append("<h3>Kaldırılanlar</h3><ul>" + "".join(f"<li>{esc(x)}</li>" for x in r.removed) + "</ul>")
+            parts.append(f"<h3>{tr('Kaldırılanlar')}</h3><ul>" + "".join(f"<li>{esc(x)}</li>" for x in r.removed) + "</ul>")
         if r.kept:
-            parts.append("<h3>Bilerek bırakılanlar</h3><ul>"
+            parts.append(f"<h3>{tr('Bilerek bırakılanlar')}</h3><ul>"
                          + "".join(f"<li><b>{esc(k.what)}</b> — {esc(k.reason)}</li>" for k in r.kept) + "</ul>")
         for w in r.warnings:
             parts.append(f"<p style='color:#c98a00'>⚠ {esc(w)}</p>")
         if r.error:
             parts.append(f"<p style='color:#d64545'>{esc(r.error)}</p>")
         proof.setHtml("".join(parts))
-        tabs.addTab(proof, "Kontroller")
+        tabs.addTab(proof, tr("Kontroller"))
         lay.addWidget(tabs)
         bb = QDialogButtonBox(QDialogButtonBox.Close)
         bb.rejected.connect(self.reject)
@@ -466,16 +507,16 @@ class DropArea(QFrame):
         lay.setSpacing(8)
         icon = QLabel()
         icon.setPixmap(logo_pixmap(64))
-        text = QLabel("Fotoğraf ya da videoyu buraya sürükleyin")
+        text = QLabel(tr("Fotoğraf ya da videoyu buraya sürükleyin"))
         text.setObjectName("dropText")
-        hint = QLabel(SUPPORTED_TEXT)
+        hint = QLabel(tr(SUPPORTED_TEXT))
         hint.setObjectName("dropHint")
         hint.setWordWrap(True)
         self.icon, self.hint, self.lay = icon, hint, lay
         for w in (icon, text):
             w.setAlignment(Qt.AlignCenter)
             lay.addWidget(w)
-        btn = QPushButton("Dosya seç")
+        btn = QPushButton(tr("Dosya seç"))
         btn.setObjectName("primary")
         btn.setCursor(Qt.PointingHandCursor)
         btn.clicked.connect(on_click)
@@ -516,6 +557,8 @@ class SimpleWindow(QMainWindow):
         self.pool.setMaxThreadCount(dialogs.saved_parallel())
         self.signals = _Signals()
         self.signals.stage.connect(lambda cid, t: self.cards[cid].set_stage(t) if cid in self.cards else None)
+        self.signals.thumb.connect(lambda cid, png: self.cards[cid].show_image(QImage.fromData(png))
+                                   if cid in self.cards else None)
         self.signals.scanned.connect(self._on_scanned)
         self.signals.done.connect(self._on_done)
         self.signals.saved.connect(self._on_saved)
@@ -544,14 +587,14 @@ class SimpleWindow(QMainWindow):
         titles.setSpacing(2)
         title = QLabel("MetaClean")
         title.setObjectName("brand")
-        sub = QLabel("Paylaşmadan önce konum, cihaz ve tarih bilgisini kaliteyi bozmadan kaldırır. "
-                     "Orijinal dosyanız olduğu gibi kalır.")
+        sub = QLabel(tr("Paylaşmadan önce konum, cihaz ve tarih bilgisini kaliteyi bozmadan kaldırır. "
+                        "Orijinal dosyanız olduğu gibi kalır."))
         sub.setObjectName("tagline")
         sub.setWordWrap(True)
         titles.addWidget(title)
         titles.addWidget(sub)
         head.addLayout(titles, 1)
-        more = QPushButton("Diğer  ▾")
+        more = QPushButton(tr("Diğer") + "  ▾")
         more.setObjectName("menu")
         more.setCursor(Qt.PointingHandCursor)
         menu_btn_menu = self._build_menu()
@@ -578,9 +621,10 @@ class SimpleWindow(QMainWindow):
         st = QHBoxLayout(self.steps)
         st.setContentsMargins(4, 6, 4, 0)
         st.setSpacing(18)
-        for n, head_text, body in (("1", "Bırakın", "Dosyayı yukarıya sürükleyin ya da seçin."),
-                                   ("2", "Temizlensin", "Konum, cihaz, tarih ve isim bilgileri kaldırılır."),
-                                   ("3", "Kaydedin", "“Kaydet”e basınca temiz kopya masaüstündeki “Paylaşıma Hazır” klasörüne kaydedilir.")):
+        for n, head_text, body in (("1", tr("Bırakın"), tr("Dosyayı yukarıya sürükleyin ya da seçin.")),
+                                   ("2", tr("Temizlensin"), tr("Konum, cihaz, tarih ve isim bilgileri kaldırılır.")),
+                                   ("3", tr("Kaydedin"), tr("“Kaydet”e basınca temiz kopya masaüstündeki “{folder}” "
+                                                            "klasörüne kaydedilir.", folder=tr(OUTPUT_DIR_NAME)))):
             col = QHBoxLayout()
             col.setSpacing(10)
             num = QLabel(n)
@@ -604,13 +648,13 @@ class SimpleWindow(QMainWindow):
         self.list_header = QHBoxLayout()
         self.list_title = QLabel("")
         self.list_title.setStyleSheet("font-weight: 600;")
-        self.btn_folder = QPushButton("📂 Paylaşıma Hazır klasörünü aç")
+        self.btn_folder = QPushButton(tr("📂 {folder} klasörünü aç", folder=tr(OUTPUT_DIR_NAME)))
         self.btn_folder.setObjectName("link")
         self.btn_folder.clicked.connect(self.open_output)
-        self.btn_save_all = QPushButton("Hepsini kaydet")
+        self.btn_save_all = QPushButton(tr("Hepsini kaydet"))
         self.btn_save_all.setObjectName("link")
         self.btn_save_all.clicked.connect(self.save_all)
-        self.btn_clear = QPushButton("Listeyi temizle")
+        self.btn_clear = QPushButton(tr("Listeyi temizle"))
         self.btn_clear.setObjectName("link")
         self.btn_clear.clicked.connect(self.clear_list)
         self.list_header.addWidget(self.list_title)
@@ -641,8 +685,8 @@ class SimpleWindow(QMainWindow):
         self.spacer.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         lay.addWidget(self.spacer, 1)
 
-        tip = QLabel("💡 MetaClean dosyanın içindeki gizli bilgileri temizler. Fotoğrafın kendisinde görünen yüz, "
-                     "adres, plaka ya da ekran görüntüsündeki isimleri paylaşmadan önce siz kontrol edin.")
+        tip = QLabel(tr("💡 MetaClean dosyanın içindeki gizli bilgileri temizler. Fotoğrafın kendisinde görünen yüz, "
+                        "adres, plaka ya da ekran görüntüsündeki isimleri paylaşmadan önce siz kontrol edin."))
         tip.setObjectName("tip")
         tip.setWordWrap(True)
         lay.addWidget(tip)
@@ -653,19 +697,19 @@ class SimpleWindow(QMainWindow):
     def _build_menu(self):
         from PySide6.QtWidgets import QMenu
         m = QMenu(self)
-        m.addAction("Ayarlar…", self.open_settings)
-        m.addAction("Araçlar…", lambda: dialogs.InfoDialog("Araçlar", dialogs.tools_html(), self).exec())
-        m.addAction("Nasıl çalışır?", lambda: dialogs.InfoDialog("Nasıl çalışır", dialogs.LIMITS_HTML, self).exec())
+        m.addAction(tr("Ayarlar…"), self.open_settings)
+        m.addAction(tr("Araçlar…"), lambda: dialogs.InfoDialog(tr("Araçlar"), dialogs.tools_html(), self).exec())
+        m.addAction(tr("Nasıl çalışır?"), lambda: dialogs.InfoDialog(tr("Nasıl çalışır"), dialogs.limits_html(), self).exec())
         m.addSeparator()
-        m.addAction("MetaClean hakkında", lambda: dialogs.InfoDialog("Hakkında", dialogs.about_html(), self).exec())
+        m.addAction(tr("MetaClean hakkında"), lambda: dialogs.InfoDialog(tr("Hakkında"), dialogs.about_html(), self).exec())
         return m
 
     def _check_tools(self) -> None:
         missing = [t for t in tools.TOOLS if not tools.find_tool(t)]
         if missing:
             hint = dialogs.INSTALL_HINTS.get(sys.platform if sys.platform in dialogs.INSTALL_HINTS else "linux")
-            self.banner.setText(f"<b>Program tam çalışmak için bir bileşen daha istiyor ({', '.join(missing)}).</b><br>"
-                                f"Kurmak için Terminal'e şunu yazın: <code>{hint}</code>")
+            self.banner.setText(tr("<b>Program tam çalışmak için bir bileşen daha istiyor ({tools}).</b><br>"
+                                   "Kurmak için Terminal'e şunu yazın: <code>{hint}</code>", tools=", ".join(missing), hint=hint))
             self.banner.show()
 
     # ------------------------------------------------------------ ekleme
@@ -722,7 +766,7 @@ class SimpleWindow(QMainWindow):
         self._update_receiving()
 
     def _update_receiving(self) -> None:
-        self.receiving.setText(f"⏳ Galeriden alınıyor… ({self._receiving} dosya)")
+        self.receiving.setText(tr("⏳ Galeriden alınıyor… ({n} dosya)", n=self._receiving))
         self.receiving.setVisible(self._receiving > 0)
 
     def _on_received(self, path: str) -> None:
@@ -733,25 +777,26 @@ class SimpleWindow(QMainWindow):
     def _on_receive_failed(self, message: str) -> None:
         self._receiving = max(0, self._receiving - 1)
         self._update_receiving()
-        QMessageBox.warning(self, "Galeriden alınamadı",
-                            "Dosya galeriden alınamadı. Fotoğraf iCloud'daysa önce indirilmesini bekleyin "
-                            f"ya da Dosya → Dışa Aktar ile masaüstüne kaydedip oradan bırakın.\n\n{message}")
+        QMessageBox.warning(self, tr("Galeriden alınamadı"),
+                            tr("Dosya galeriden alınamadı. Fotoğraf iCloud'daysa önce indirilmesini bekleyin "
+                               "ya da Dosya → Dışa Aktar ile masaüstüne kaydedip oradan bırakın.\n\n{message}",
+                               message=message))
 
     def choose_files(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Paylaşılacak dosyaları seçin", "",
-            "Fotoğraf, video ve ses (*.jpg *.jpeg *.png *.webp *.heic *.heif *.avif *.mp3 *.flac *.m4a *.mp4 "
-            "*.mov *.mkv *.webm);;Tüm dosyalar (*)")
+            self, tr("Paylaşılacak dosyaları seçin"), "",
+            tr("Fotoğraf, video ve ses") + " (*.jpg *.jpeg *.png *.webp *.heic *.heif *.avif *.mp3 *.flac *.m4a *.mp4 "
+            "*.mov *.mkv *.webm);;" + tr("Tüm dosyalar") + " (*)")
         self.add_paths(paths)
 
     def add_paths(self, paths: List[str]) -> None:
         log.info("add_paths: %s", paths)
         if any(".photoslibrary" in p for p in paths):
             QMessageBox.information(
-                self, "Fotoğraflar uygulamasından",
-                "Fotoğraflar uygulamasından doğrudan sürüklenen dosya orijinal değil, küçük bir önizleme oluyor.\n\n"
-                "Şöyle yapın: Fotoğraflar'da fotoğrafı seçin → Dosya → Dışa Aktar → “Değiştirilmemiş Orijinali "
-                "Dışa Aktar” → Masaüstüne kaydedin. Sonra o dosyayı buraya bırakın.")
+                self, tr("Fotoğraflar uygulamasından"),
+                tr("Fotoğraflar uygulamasından doğrudan sürüklenen dosya orijinal değil, küçük bir önizleme oluyor.\n\n"
+                   "Şöyle yapın: Fotoğraflar'da fotoğrafı seçin → Dosya → Dışa Aktar → “Değiştirilmemiş Orijinali "
+                   "Dışa Aktar” → Masaüstüne kaydedin. Sonra o dosyayı buraya bırakın."))
             paths = [p for p in paths if ".photoslibrary" not in p]
         out = os.path.realpath(output_dir())
         files = []
@@ -760,7 +805,7 @@ class SimpleWindow(QMainWindow):
                 for rootdir, dirs, names in os.walk(p):
                     dirs[:] = [d for d in dirs if not d.startswith(".")]
                     files += [os.path.join(rootdir, n) for n in sorted(names) if not n.startswith(".")
-                              and detect.detect(os.path.join(rootdir, n))]
+                              and _supported(os.path.join(rootdir, n))]
             elif os.path.isfile(p):
                 files.append(p)
         for f in files:
@@ -848,13 +893,13 @@ class SimpleWindow(QMainWindow):
         saved = sum(1 for c in self.cards.values() if c.dest)
         waiting = sum(1 for c in self.cards.values() if c.waiting and not c.saving)
         busy = sum(1 for c in self.cards.values() if not c.done or c.saving)
-        parts = [f"{saved} kaydedildi"] if saved else []
+        parts = [tr("{n} kaydedildi", n=saved)] if saved else []
         if waiting:
-            parts.append(f"{waiting} onay bekliyor")
+            parts.append(tr("{n} onay bekliyor", n=waiting))
         if busy:
-            parts.append(f"{busy} işleniyor")
+            parts.append(tr("{n} işleniyor", n=busy))
         self.list_title.setText(" · ".join(parts))
-        self.btn_save_all.setText(f"Hepsini kaydet ({waiting})")
+        self.btn_save_all.setText(tr("Hepsini kaydet ({n})", n=waiting))
         self.btn_save_all.setVisible(waiting > 1)
         for w in (self.btn_clear, self.list_title, self.split):
             w.setVisible(total > 0)
@@ -880,14 +925,31 @@ class SimpleWindow(QMainWindow):
         self._update_header()
 
     def open_settings(self) -> None:
-        if dialogs.SettingsDialog(self).exec():
+        dlg = dialogs.SettingsDialog(self)
+        if dlg.exec():
             self.pool.setMaxThreadCount(dialogs.saved_parallel())
+            if dlg.language_changed:
+                self.switch_language()
+
+    def switch_language(self) -> None:
+        """Yeni dili hemen uygular: pencere yeni dille yeniden kurulur. Kaydedilmemiş dosya varsa kapanırken
+        her zamanki gibi sorulur; kullanıcı vazgeçerse dil bir sonraki açılışta geçerli olur."""
+        app = QApplication.instance()
+        app.setQuitOnLastWindowClosed(False)  # eski pencere kapanınca uygulama kapanmasın
+        try:
+            if not self.close():
+                return
+            langsetup.apply(app)
+            app._metaclean_window = SimpleWindow()  # referans tutulmazsa pencere çöp toplanır
+            app._metaclean_window.show()
+        finally:
+            app.setQuitOnLastWindowClosed(True)
 
     def closeEvent(self, event) -> None:
         waiting = sum(1 for c in self.cards.values() if c.waiting)
         if waiting and QMessageBox.question(
-                self, "Kaydedilmemiş dosyalar",
-                f"{waiting} temiz kopya henüz kaydedilmedi. Kaydetmeden çıkılsın mı?") != QMessageBox.Yes:
+                self, tr("Kaydedilmemiş dosyalar"),
+                tr("{n} temiz kopya henüz kaydedilmedi. Kaydetmeden çıkılsın mı?", n=waiting)) != QMessageBox.Yes:
             event.ignore()
             return
         for c in self.cards.values():

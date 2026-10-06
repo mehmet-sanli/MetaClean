@@ -86,18 +86,21 @@ def detect(path: str) -> Optional[str]:
         return None
     if head[4:8] in (b"moov", b"mdat", b"wide", b"free", b"skip"):
         return "mov"  # ftyp'siz eski QuickTime
-    # FLAC ve MP3 başında ID3v2 olabilir
+    # FLAC ve MP3 başında ID3v2 olabilir; kapak resmi gömülüyse etiket megabaytlarca sürer. Etiketler
+    # dosyadaki gerçek konumlarından okunarak atlanır (her adım en az 10 bayt ilerler)
     off = 0
-    while head[off:off + 3] == b"ID3" and off + 10 <= len(head):
-        size = _syncsafe(head[off + 6:off + 10]) + 10 + (10 if head[off + 5] & 0x10 else 0)
-        off += size
-        if off + 4 > len(head):
-            with open(path, "rb") as f:
-                f.seek(off)
-                head = head[:off] + f.read(4096)
-    if head[off:off + 4] == b"fLaC":
+    with open(path, "rb") as f:
+        while True:
+            f.seek(off)
+            tag = f.read(10)
+            if len(tag) < 10 or tag[:3] != b"ID3":
+                break
+            off += _syncsafe(tag[6:10]) + 10 + (10 if tag[5] & 0x10 else 0)
+        f.seek(off)
+        start = f.read(4)
+    if start == b"fLaC":
         return "flac"
-    if _is_mp3_frame(head[off:off + 4]):
+    if _is_mp3_frame(start):
         return "mp3"
     return None
 

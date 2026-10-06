@@ -148,9 +148,13 @@ def main(d: str):
         print("HEIC atlandı:", e)
 
     sine = ["-f", "lavfi", "-i", "sine=frequency=440:duration=3"]
-    # MP3: ID3v2 (+kapak), ID3v1, APE
+    # MP3: ID3v2 (+kapak), ID3v1, APE. Kapak gerçek hayattaki gibi büyük: ID3 etiketi 8 KB'ı aşınca
+    # biçim tanıma bozuluyordu (gerileme)
+    import random
+    big = io.BytesIO()
+    Image.frombytes("RGB", (300, 300), random.Random(1).randbytes(300 * 300 * 3)).save(big, "JPEG", quality=95)
     cover = p("kapak.jpg")
-    write(cover, thumb.getvalue())
+    write(cover, big.getvalue())
     sh(*FF, *sine, "-i", cover, "-map", "0", "-map", "1:v",
        "-c:a", "libmp3lame", "-b:a", "128k", "-c:v", "copy", "-disposition:v", "attached_pic",
        "-id3v2_version", "3", "-write_id3v1", "1", "-metadata", "title=Gizli Kayıt", "-metadata", "artist=Ayşe",

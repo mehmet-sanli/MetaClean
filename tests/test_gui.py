@@ -224,6 +224,20 @@ class SimpleWindowTests(unittest.TestCase):
         pix = card.thumb.pixmap()
         self.assertFalse(pix is None or pix.isNull(), "HEIC küçük resmi gösterilmeli")
 
+    def test_video_gets_thumbnail(self):
+        # 1 saniyeden kısa video da (ilk kareye düşer) küçük resim almalı
+        import subprocess
+        ffmpeg = tools.find_tool("ffmpeg")
+        for name, dur in (("uzun.mp4", "2"), ("kisa.mp4", "0.4")):
+            subprocess.run([ffmpeg, "-v", "error", "-f", "lavfi", "-i", f"testsrc=duration={dur}:size=320x240:rate=10",
+                            "-metadata", "title=gizli", "-pix_fmt", "yuv420p", os.path.join(self.tmp, name)], check=True)
+        self.win.add_paths([os.path.join(self.tmp, n) for n in ("uzun.mp4", "kisa.mp4")])
+        self.wait()
+        for card in self.win.cards.values():
+            self.assertTrue(card.waiting, card.status.text())
+            pix = card.thumb.pixmap()
+            self.assertFalse(pix is None or pix.isNull(), f"{card.job.path}: video küçük resmi gösterilmeli")
+
     @unittest.skipIf(os.name == "nt", "Windows dosya adında < ve > kabul etmez; bu durum orada oluşamaz")
     def test_file_name_shown_as_plain_text(self):
         src = os.path.join(self.tmp, "<u>alti-cizili<u>.jpg")  # dosya adında "/" olamaz
@@ -245,6 +259,97 @@ class SimpleWindowTests(unittest.TestCase):
             win = self.sw.SimpleWindow()
         self.assertEqual(win.pool.maxThreadCount(), 5)
         win.close()
+
+    def test_english_interface(self):
+        from metaclean import i18n
+        i18n.set_language("en")
+        try:
+            win = self.sw.SimpleWindow()
+            src = os.path.join(self.tmp, "a.jpg")
+            make_photo(src)
+            win.add_paths([src])
+            t = time.time()
+            while any(not c.done for c in win.cards.values()) and time.time() - t < 60:
+                self.app.processEvents()
+                time.sleep(0.02)
+            card = next(iter(win.cards.values()))
+            text = self.card_text(card)
+            for expected in ("Clean copy ready", "Location", "Device information"):
+                self.assertIn(expected, text)
+            self.assertEqual(card.btn_save.text(), "Save")
+            self.assertIn("Location (coordinates)", win.meta.body.toPlainText())
+            self.assertIn("Removed when saved", win.meta.body.toPlainText())
+            for c in win.cards.values():
+                c.discard()
+            win.close()
+        finally:
+            i18n.set_language("tr")
+
+    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), "chmod 000 sınanamıyor")
+    def test_unreadable_file_does_not_abort_folder_drop(self):
+        # Gerileme: klasördeki tek okunamayan dosya bütün bırakmayı PermissionError ile durduruyordu
+        folder = os.path.join(self.tmp, "klasor")
+        os.makedirs(folder)
+        make_photo(os.path.join(folder, "iyi.jpg"))
+        bad = os.path.join(folder, "okunamaz.jpg")
+        make_photo(bad)
+        os.chmod(bad, 0)
+        try:
+            self.win.add_paths([folder])
+        finally:
+            os.chmod(bad, 0o600)
+        self.assertEqual([os.path.basename(c.job.path) for c in self.win.cards.values()], ["iyi.jpg"])
+        self.wait()
+
+    def test_thumbnail_only_for_recognised_formats(self):
+        # Güvenilmez dosya, tanınan biçimin çözücüsü dışında hiçbir çözücüye verilmemeli (ör. EPS -> Ghostscript)
+        eps = os.path.join(self.tmp, "belge.eps")
+        with open(eps, "w") as f:
+            f.write("%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 10 10\nshowpage\n")
+        self.assertTrue(self.sw.pil_thumbnail(eps).isNull())
+        jpg = os.path.join(self.tmp, "a.jpg")
+        make_photo(jpg)
+        self.assertTrue(self.sw.pil_thumbnail(jpg).isNull(), "Pillow yolu yalnızca HEIF/AVIF içindir")
+        self.win.add_paths([eps])
+        self.wait()
+        card = next(iter(self.win.cards.values()))
+        pix = card.thumb.pixmap()
+        self.assertTrue(pix is None or pix.isNull(), "tanınmayan dosyaya küçük resim üretilmemeli")
+
+    def test_video_frame_respects_cancel(self):
+        import threading
+        stop = threading.Event()
+        stop.set()
+        self.assertEqual(self.sw.video_frame(os.path.join(self.tmp, "yok.mp4"), cancel=stop), b"")
+
+    @unittest.skipUnless(sys.platform == "darwin", "macOS'a özgü")
+    def test_system_language_from_macos_not_lang_env(self):
+        # Gerileme: Finder'dan açılan uygulamada LANG yok; Qt "C" görüyor, Türkçe Mac'te uygulama İngilizce açılıyordu
+        from Foundation import NSLocale
+        from metaclean.gui import langsetup
+        from PySide6.QtCore import QLocale
+        with mock.patch.object(QLocale, "system", return_value=QLocale.c()):
+            langs = langsetup.system_languages()
+        self.assertEqual(langs[0], str(NSLocale.preferredLanguages()[0]))
+        self.assertNotIn("C", langs)
+
+    def test_language_switch_applies_immediately(self):
+        from PySide6.QtCore import QSettings
+        from metaclean import i18n
+        from metaclean.gui import dialogs
+        store = QSettings(os.path.join(self.tmp, "ayar.ini"), QSettings.IniFormat)
+        store.setValue("ui/lang", "en")
+        try:
+            with mock.patch.object(dialogs, "settings", lambda: store):
+                self.win.switch_language()
+            new = self.app._metaclean_window
+            self.assertFalse(self.win.isVisible(), "eski pencere kapanmalı")
+            self.assertTrue(new.isVisible())
+            self.assertEqual(new.drop.findChildren(self.sw.QPushButton)[0].text(), "Choose file")
+            self.assertTrue(self.app.quitOnLastWindowClosed(), "uygulamanın normal kapanma davranışı geri gelmeli")
+            new.close()
+        finally:
+            i18n.set_language("tr")
 
     def test_unsupported_file_explained(self):
         src = os.path.join(self.tmp, "belge.jpg")

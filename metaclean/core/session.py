@@ -10,6 +10,7 @@ import tempfile
 import threading
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
+from ..i18n import tr
 from . import allowlist, detect, fsops, timestamps, tools
 from .handlers.audio import FlacHandler, Mp3Handler
 from .handlers.base import Context, Handler, Options
@@ -18,6 +19,10 @@ from .handlers.video import AvHandler
 from .report import Gate, Report
 
 _LIVE_WORKDIRS: Set[str] = set()
+
+
+class Unsupported(ValueError):
+    """Dosya imzası desteklenen biçimlerden biri değil (meta verisi yine de okunur)."""
 
 
 @atexit.register
@@ -105,29 +110,29 @@ class Job:
         r = self.report
         try:
             if not os.path.isfile(self.real):
-                raise ValueError("Normal bir dosya değil")
+                raise ValueError(tr("Normal bir dosya değil"))
             if os.path.abspath(self.path) != self.real:
-                r.warnings.append(f"Sembolik bağ çözüldü; asıl dosya işlenecek: {self.real}")
+                r.warnings.append(tr("Sembolik bağ çözüldü; asıl dosya işlenecek: {path}", path=self.real))
             fmt = detect.detect(self.real)
             if not fmt:
                 # Temizlenemese de meta veri gösterilebilir (PDF, Word, RAW…); yalnızca okunur
                 if tools.find_tool("exiftool"):
-                    progress("Meta veri okunuyor (ExifTool)")
+                    progress(tr("Meta veri okunuyor (ExifTool)"))
                     r.scan = scan or tools.exiftool_scan(self.real, log=r.log, cancel=self.cancel)
                     r.found = allowlist.sensitive(r.scan)
-                raise ValueError("Desteklenmeyen biçim: bu dosya temizlenemez (imzası desteklenen biçimlerden biri değil). "
-                                 "Meta verisi yalnızca görüntülenebilir; 'Meta veri' sekmesine bakın.")
+                raise Unsupported(tr("Desteklenmeyen biçim: bu dosya temizlenemez (imzası desteklenen biçimlerden "
+                                     "biri değil). Meta verisi yalnızca görüntülenebilir."))
             r.fmt = fmt
             for t in (("exiftool",) if detect.kind(fmt) == "image" else ("exiftool", "ffmpeg", "ffprobe")):
                 tools.require(t)
-            progress("Orijinalin SHA-256 özeti alınıyor")
+            progress(tr("Orijinalin SHA-256 özeti alınıyor"))
             self.orig_sig = signature(self.real)
             # Sistemin geçici klasörü (yalnızca kullanıcıya açık): onay alınmadan kullanıcının
             # klasörlerine hiçbir şey yazılmaz
             try:
                 self.workdir = tempfile.mkdtemp(prefix="metaclean-")
             except OSError as e:
-                raise ValueError(f"Geçici klasöre yazılamıyor ({e}).")
+                raise ValueError(tr("Geçici klasöre yazılamıyor ({e}).", e=e))
             _LIVE_WORKDIRS.add(self.workdir)
             def step(text: str) -> None:
                 if self.cancel.is_set():
@@ -136,26 +141,28 @@ class Job:
 
             ctx = Context(self.real, self.workdir, fmt, r, self.options, self.cancel, step)
 
-            step("Meta veri taranıyor (ExifTool)")
+            step(tr("Meta veri taranıyor (ExifTool)"))
             r.scan = scan or tools.exiftool_scan(self.real, log=r.log, cancel=self.cancel)
             r.found = allowlist.sensitive(r.scan, fmt)
             handler = make_handler(fmt)
-            step("Temizleniyor")
+            step(tr("Temizleniyor"))
             out = handler.clean(ctx)
             integrity, equivalence = handler.verify(ctx, out)
-            step("Temizlik: yeniden taranıyor")
+            step(tr("Temizlik: yeniden taranıyor"))
             r.gates = [integrity, equivalence, self._cleanliness(handler, ctx, out)]
             if signature(self.real) != self.orig_sig:
-                raise RuntimeError("Orijinal dosya işlem sırasında değişti.")
+                raise RuntimeError(tr("Orijinal dosya işlem sırasında değişti."))
             if r.ok:
                 self.out = out
             else:
                 self.discard()
         except tools.Cancelled:
-            r.error = "İptal edildi."
+            r.error, r.error_kind = tr("İptal edildi."), "cancelled"
             self.discard()
         except Exception as e:  # noqa: BLE001 - her hata raporda gösterilir, temp silinir
             r.error = f"{type(e).__name__}: {e}" if not isinstance(e, (ValueError, tools.ToolError)) else str(e)
+            r.error_kind = ("unsupported" if isinstance(e, Unsupported)
+                            else "missing_tool" if isinstance(e, tools.ToolMissing) else "")
             self.discard()
         return r
 
@@ -168,24 +175,24 @@ class Job:
                 ok = False
                 details += bad
             else:
-                details.append("Yapısal denetim: çıktıda yalnızca izin listesindeki bloklar var.")
+                details.append(tr("Yapısal denetim: çıktıda yalnızca izin listesindeki bloklar var."))
         self.report.clean_scan = tools.exiftool_scan(out, log=ctx.log, cancel=ctx.cancel)
         remaining = allowlist.sensitive(self.report.clean_scan, ctx.fmt)
         self.report.remaining = remaining
         if remaining:
             ok = False
-            details += [f"Kalan alan: {f.key} = {f.value}" for f in remaining]
+            details += [tr("Kalan alan: {key} = {value}", key=f.key, value=f.value) for f in remaining]
         else:
-            details.append("ExifTool yeniden taraması (-a -u -G1 -ee): izin listesi dışında alan yok.")
-        return Gate("Temizlik", ok, details)
+            details.append(tr("ExifTool yeniden taraması (-a -u -G1 -ee): izin listesi dışında alan yok."))
+        return Gate(tr("Temizlik"), ok, details)
 
     # ------------------------------------------------------------ onay sonrası
     def save_copy(self, dest: str) -> List[str]:
         if not self.ready:
-            raise RuntimeError("Kaydedilecek doğrulanmış dosya yok.")
+            raise RuntimeError(tr("Kaydedilecek doğrulanmış dosya yok."))
         dest_real = os.path.realpath(dest)
         if dest_real == self.real:
-            raise RuntimeError("Kopya orijinalin üzerine yazılamaz; bunun için 'Kaydet'i kullanın.")
+            raise RuntimeError(tr("Kopya orijinalin üzerine yazılamaz."))
         dest_dir = os.path.dirname(dest_real)
         if os.stat(dest_dir).st_dev == os.stat(self.workdir).st_dev:
             _fsync_file(self.out)

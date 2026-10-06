@@ -10,12 +10,18 @@ import sys
 import threading
 from typing import Dict, List, Optional
 
+from ..i18n import tr
+
 TOOLS = ("exiftool", "ffmpeg", "ffprobe")
 
 _overrides: Dict[str, str] = {}
 
 
 class ToolError(RuntimeError):
+    pass
+
+
+class ToolMissing(ToolError):
     pass
 
 
@@ -30,13 +36,16 @@ def set_override(name: str, path: Optional[str]) -> None:
         _overrides.pop(name, None)
 
 
+def _bundled_bases() -> List[str]:
+    """PyInstaller paketi ya da uygulamanın yanındaki bin/ klasörünün üstü."""
+    return [b for b in (getattr(sys, "_MEIPASS", None), os.path.dirname(os.path.abspath(sys.argv[0]))) if b]
+
+
 def _candidates(name: str):
     exe = name + (".exe" if os.name == "nt" else "")
     if name in _overrides:
         yield _overrides[name]
-    # PyInstaller paketi ya da uygulamanın yanındaki bin/ klasörü
-    bases = [getattr(sys, "_MEIPASS", None), os.path.dirname(os.path.abspath(sys.argv[0]))]
-    for base in filter(None, bases):
+    for base in _bundled_bases():
         yield os.path.join(base, "bin", exe)
         if name == "exiftool":
             yield os.path.join(base, "bin", "exiftool", "exiftool.exe" if os.name == "nt" else "exiftool")
@@ -63,11 +72,15 @@ def find_tool(name: str) -> Optional[str]:
             continue
         if os.access(c, os.X_OK) or _is_script(c):
             return c
-        try:  # paketlenince çalıştırma izni düşmüş olabilir
-            os.chmod(c, 0o755)
-            return c
-        except OSError:
-            continue
+        # Paketlenince çalıştırma izni düşmüş olabilir; yalnızca uygulamanın kendi bin/ klasöründeki araç
+        # düzeltilir, kullanıcının gösterdiği ya da PATH'teki dosyaların iznine dokunulmaz
+        if any(os.path.realpath(c).startswith(os.path.realpath(os.path.join(b, "bin")) + os.sep)
+               for b in _bundled_bases()):
+            try:
+                os.chmod(c, 0o755)
+                return c
+            except OSError:
+                pass
     return None
 
 
@@ -83,7 +96,7 @@ def command(name: str) -> List[str]:
 def require(name: str) -> str:
     path = find_tool(name)
     if not path:
-        raise ToolError(f"{name} bulunamadı. Kurun ya da Ayarlar'dan yolunu gösterin.")
+        raise ToolMissing(tr("{name} bulunamadı. Kurun ya da Ayarlar'dan yolunu gösterin.", name=name))
     return path
 
 
@@ -134,7 +147,7 @@ def _argfile(args: List[str]) -> bytes:
     enjekte edilebilir. Satır sonu içeren hiçbir argümanı ExifTool'a geçirme."""
     for a in args:
         if "\n" in a or "\r" in a:
-            raise ToolError("Dosya adında satır sonu karakteri var; güvenlik gereği işlenmedi.")
+            raise ToolError(tr("Dosya adında satır sonu karakteri var; güvenlik gereği işlenmedi."))
     return ("\n".join(args) + "\n").encode("utf-8")
 
 
@@ -146,7 +159,7 @@ def exiftool_scan(path: str, *, log=None, cancel=None) -> Dict[str, object]:
     cp = run([*exe, "-charset", "filename=utf8", "-@", "-"], log=log,
              stdin=argfile, cancel=cancel)
     if cp.returncode not in (0, 1) or not cp.stdout.strip():
-        raise ToolError("ExifTool taraması başarısız: " + cp.stderr.decode("utf-8", "replace").strip())
+        raise ToolError(tr("ExifTool taraması başarısız: {err}", err=cp.stderr.decode("utf-8", "replace").strip()))
     data = json.loads(cp.stdout.decode("utf-8", "replace"))
     return data[0] if data else {}
 
@@ -156,12 +169,12 @@ def exiftool_write(args: List[str], *, log=None, cancel=None) -> None:
     cp = run([*exe, "-charset", "filename=utf8", "-@", "-"], log=log,
              stdin=_argfile(args), cancel=cancel)
     if cp.returncode != 0:
-        raise ToolError("ExifTool yazamadı: " + cp.stderr.decode("utf-8", "replace").strip())
+        raise ToolError(tr("ExifTool yazamadı: {err}", err=cp.stderr.decode("utf-8", "replace").strip()))
 
 
 def ffprobe_json(path: str, extra: List[str], *, log=None, cancel=None) -> dict:
     exe = require("ffprobe")
     cp = run([exe, "-v", "error", "-of", "json", *extra, path], log=log, cancel=cancel)
     if cp.returncode != 0:
-        raise ToolError("ffprobe başarısız: " + cp.stderr.decode("utf-8", "replace").strip())
+        raise ToolError(tr("ffprobe başarısız: {err}", err=cp.stderr.decode("utf-8", "replace").strip()))
     return json.loads(cp.stdout.decode("utf-8", "replace") or "{}")

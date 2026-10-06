@@ -16,6 +16,8 @@ import time
 from datetime import datetime
 from typing import List, Optional
 
+from ..i18n import tr
+
 TOLERANCE = 2.0  # FAT/exFAT 2 saniyelik çözünürlük
 
 
@@ -88,20 +90,25 @@ def apply(path: str) -> List[str]:
             _set_birth_macos(path, ts)
             birth_ok = True
     except OSError as e:
-        notes.append(f"✗ Oluşturulma zamanı ayarlanamadı: {e}")
+        notes.append(tr("✗ Oluşturulma zamanı ayarlanamadı: {e}", e=e))
         birth_ok = False
-    os.utime(path, (ts, ts))
+    try:
+        os.utime(path, (ts, ts))
+    except OSError as e:
+        # Dosya zaten kaydedildi; damga ayarlanamadı diye kayıt başarısız sayılmasın (doğrulama ✗ gösterir)
+        notes.append(tr("✗ Zaman damgaları ayarlanamadı: {e}", e=e))
 
     st = os.stat(path)
-    for label, value in (("Değiştirilme", st.st_mtime), ("Erişim", st.st_atime)):
+    for label, value in ((tr("Değiştirilme"), st.st_mtime), (tr("Erişim"), st.st_atime)):
         ok = abs(value - ts) <= TOLERANCE
         notes.append(f"{'✓' if ok else '✗'} {label}: {_fmt(value)}")
     b = birth_time(path)
     if birth_ok is None:
-        notes.append("• Oluşturulma: Linux'ta kullanıcı alanından ayarlanamaz; dosyanın gerçek oluşturulma "
-                     "anı (geçici dosyanın yaratıldığı an) kalır." + (f" Okunan: {_fmt(b)}" if b else ""))
-        notes.append("• Linux ctime oluşturulma değil, inode'un son değişim zamanıdır; onu çekirdek yazar.")
+        notes.append(tr("• Oluşturulma: Linux'ta kullanıcı alanından ayarlanamaz; dosyanın gerçek oluşturulma "
+                        "anı (geçici dosyanın yaratıldığı an) kalır.")
+                     + (tr(" Okunan: {t}", t=_fmt(b)) if b else ""))
+        notes.append(tr("• Linux ctime oluşturulma değil, inode'un son değişim zamanıdır; onu çekirdek yazar."))
     elif b is not None:
         ok = abs(b - ts) <= TOLERANCE
-        notes.append(f"{'✓' if ok else '✗'} Oluşturulma: {_fmt(b)}")
+        notes.append(f"{'✓' if ok else '✗'} {tr('Oluşturulma')}: {_fmt(b)}")
     return notes
