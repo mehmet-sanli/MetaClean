@@ -206,6 +206,21 @@ class StabilityTests(unittest.TestCase):
         with self.assertRaises(Image.DecompressionBombError):
             images.decode_digest(path)
 
+    def test_stale_workdirs_cleaned_but_fresh_kept(self):
+        # Çökmeden kalan geçici klasörler (galeri kopyaları konum taşıyabilir) açılışta silinir; yenilere dokunulmaz
+        from metaclean.core import session
+        old = tempfile.mkdtemp(prefix="metaclean-galeri-")
+        fresh = tempfile.mkdtemp(prefix="metaclean-galeri-")
+        os.utime(old, (0, 0))
+        try:
+            session.cleanup_stale_workdirs()
+            self.assertFalse(os.path.exists(old), "bir günden eski klasör silinmeli")
+            self.assertTrue(os.path.exists(fresh), "yeni klasöre (başka açık MetaClean) dokunulmamalı")
+        finally:
+            import shutil
+            shutil.rmtree(fresh, ignore_errors=True)
+            shutil.rmtree(old, ignore_errors=True)
+
     def test_timestamp_failure_does_not_fail_save(self):
         from metaclean.core import timestamps
         path = os.path.join(self.tmp, "x.bin")

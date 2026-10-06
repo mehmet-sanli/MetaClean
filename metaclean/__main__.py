@@ -79,6 +79,10 @@ def main() -> int:
     logging.getLogger("metaclean").info("MetaClean %s başladı, Python %s, %s", __version__,
                                         sys.version.split()[0], sys.platform)
     sys.excepthook = _excepthook
+    from .core.session import cleanup_stale_workdirs
+    stale = cleanup_stale_workdirs()
+    if stale:
+        logging.getLogger("metaclean").info("önceki oturumlardan kalan %d geçici klasör silindi", stale)
     app = QApplication(sys.argv)
     app.setApplicationName("MetaClean")
     app.setOrganizationName("MetaClean")

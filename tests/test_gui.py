@@ -351,6 +351,30 @@ class SimpleWindowTests(unittest.TestCase):
         finally:
             i18n.set_language("tr")
 
+    def test_log_never_contains_metadata_values(self):
+        # Gerileme: başarısız temizlik kapısının ayrıntıları ("Kalan alan: ... = değer") kayda yazılıyordu
+        from metaclean.core.handlers import images
+        orig_clean = images.JpegHandler.clean
+
+        def leaky(self_, ctx):
+            out = orig_clean(self_, ctx)
+            with open(out, "rb") as f:
+                data = f.read()
+            secret = "Ayşe Yılmaz Kadıköy".encode("utf-8")
+            com = b"\xff\xfe" + (len(secret) + 2).to_bytes(2, "big") + secret
+            with open(out, "wb") as f:
+                f.write(data[:2] + com + data[2:])
+            return out
+
+        src = os.path.join(self.tmp, "a.jpg")
+        make_photo(src)
+        with mock.patch.object(images.JpegHandler, "clean", leaky), self.assertLogs("metaclean.gui", "INFO") as logs:
+            self.win.add_paths([src])
+            self.wait()
+        text = "\n".join(logs.output)
+        self.assertIn("başarısız kapılar", text)
+        self.assertNotIn("Kadıköy", text, "kayda meta veri değeri yazılmamalı")
+
     def test_unsupported_file_explained(self):
         src = os.path.join(self.tmp, "belge.jpg")
         with open(src, "w", encoding="utf-8") as f:

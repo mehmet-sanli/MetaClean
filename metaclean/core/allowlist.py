@@ -71,7 +71,11 @@ RULES: Dict[str, Dict[str, Rule]] = {
     "ID3v2_3": {"Comment": lambda v: v.startswith("(iTunSMPB)")},
     "ID3v2_4": {"Comment": lambda v: v.startswith("(iTunSMPB)")},
     "iTunes": {"iTunSMPB": True},
-    "QuickTime": {k: True for k in _QT_STRUCT},
+    "QuickTime": {**{k: True for k in _QT_STRUCT},
+                  # HEIF yardımcı görüntü türü (saydamlık, derinlik, kazanç haritası): standart URN, kişisel değil
+                  "AuxiliaryImageType": lambda v: str(v).startswith("urn:"),
+                  # HEIF kırpma dikdörtgeni (clap): yalnızca sayılar
+                  "CleanAperture": lambda v: bool(re.fullmatch(r"[-\d. /]+", str(v)))},
     "Meta": {"PrimaryItemReference": True, "Free": True},
     "Track": {**{k: True for k in _TRACK_STRUCT},
               # FFmpeg'in varsayılan işleyici adları; "Core Media Video" gibi kaynak adları kalmamalı
